@@ -370,7 +370,7 @@ function activateLicenseCode(rawCode) {
 
   const [, prefix, token, cs] = m;
   if (getCodeChecksum(prefix, token) !== cs) {
-    return { ok: false, message: "Mã kích hoạt không đúng. Vui lòng liên hệ Zalo shop." };
+    return { ok: false, message: "Mã kích hoạt không đúng. Vui lòng liên hệ Discord hỗ trợ: binnpro" };
   }
 
   if (getUsedCodes().includes(code)) {
@@ -492,13 +492,13 @@ async function handleSubmitCard() {
       if (els.cardPinInput) els.cardPinInput.value = "";
     } else {
       els.cardSubmitResult.innerHTML =
-        '📋 Chưa kết nối trực tiếp tới máy chủ duyệt thẻ — hãy bấm <button type="button" id="btnCopyCardSummary" class="btn btn-soft btn-sm" style="margin:2px 4px;">Copy thông tin thẻ</button> rồi gửi qua Zalo cho shop nhé!';
+        '📋 Chưa kết nối trực tiếp tới máy chủ duyệt thẻ — hãy bấm <button type="button" id="btnCopyCardSummary" class="btn btn-soft btn-sm" style="margin:2px 4px;">Copy thông tin thẻ</button> rồi gửi qua Discord (<code>binnpro</code>) cho shop nhé!';
       document.getElementById("btnCopyCardSummary")?.addEventListener("click", () => {
-        copyText(summaryText, "Đã copy thông tin thẻ! Hãy dán gửi qua Zalo cho shop.");
+        copyText(summaryText, "Đã copy thông tin thẻ! Hãy dán gửi qua Discord (binnpro) cho shop.");
       });
     }
   }
-  showToast(sentToLocalhost ? "✅ Đã gửi thẻ chờ duyệt!" : "📋 Bấm Copy thông tin thẻ để gửi Zalo cho shop!");
+  showToast(sentToLocalhost ? "✅ Đã gửi thẻ chờ duyệt!" : "📋 Bấm Copy thông tin thẻ để gửi Discord (binnpro) cho shop!");
 }
 
 function updateTrialAndPlanUI() {
