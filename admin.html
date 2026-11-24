@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Duyệt Thẻ Cào — GomĐơn Admin</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Be Vietnam Pro", system-ui, -apple-system, sans-serif;
+      background: #f3f6f8;
+      color: #0f172a;
+      padding: 24px 16px;
+    }
+    .wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+    }
+    .header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    h1 { margin: 0; font-size: 20px; }
+    .sub { color: #64748b; font-size: 13px; margin-top: 4px; }
+    .stats { display: flex; gap: 12px; flex-wrap: wrap; }
+    .stat { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; min-width: 130px; }
+    .stat span { display: block; font-size: 12px; color: #64748b; }
+    .stat strong { font-size: 20px; }
+    .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+    input, select {
+      padding: 9px 11px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 13.5px;
+      width: 100%;
+    }
+    .btn {
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-primary { background: #059669; color: #fff; }
+    .btn-soft { background: #e2e8f0; color: #0f172a; }
+    .btn-danger { background: #fee2e2; color: #b91c1c; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid #e2e8f0; text-align: left; }
+    th { font-size: 12px; color: #64748b; text-transform: uppercase; }
+    .badge { padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; display: inline-block; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+    .badge-approved { background: #d1fae5; color: #065f46; }
+    .badge-rejected { background: #fee2e2; color: #991b1b; }
+    code { background: #f1f5f9; padding: 3px 6px; border-radius: 6px; font-weight: 700; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .toast {
+      position: fixed; right: 16px; bottom: 16px; background: #0f172a; color: #fff;
+      padding: 10px 14px; border-radius: 10px; font-size: 13px; display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card header">
+      <div>
+        <h1>💳 Trang Duyệt Thẻ Cào GomĐơn (Localhost)</h1>
+        <div class="sub">Nhận thẻ từ web hoặc thêm tay từ Zalo, bấm Duyệt để tự tạo mã kích hoạt 1 tháng / 2 tháng.</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <a class="btn btn-soft" href="/index.html" target="_blank" style="text-decoration:none;">Mở trang GomĐơn</a>
+        <button class="btn btn-primary" type="button" onclick="loadCards()">🔄 Làm mới</button>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span>Chờ duyệt</span><strong id="cntPending">0</strong></div>
+      <div class="stat"><span>Đã duyệt</span><strong id="cntApproved" style="color:#059669;">0</strong></div>
+      <div class="stat"><span>Từ chối</span><strong id="cntRejected" style="color:#b91c1c;">0</strong></div>
+    </div>
+
+    <div class="card">
+      <strong>+ Thêm nhanh thẻ khách nhắn qua Zalo:</strong>
+      <div class="form-row">
+        <select id="addTelco">
+          <option value="Viettel">Viettel</option>
+          <option value="Mobifone">Mobifone</option>
+          <option value="Vinaphone">Vinaphone</option>
+          <option value="Vietnamobile">Vietnamobile</option>
+        </select>
+        <select id="addAmount">
+          <option value="30000">30.000đ (1 tháng)</option>
+          <option value="50000">50.000đ (2 tháng)</option>
+        </select>
+        <input id="addSerial" placeholder="Số seri..." />
+        <input id="addPin" placeholder="Mã thẻ..." />
+        <input id="addContact" placeholder="SĐT / Zalo khách..." />
+        <button class="btn btn-primary" type="button" onclick="addManualCard()">Thêm vào danh sách</button>
+      </div>
+    </div>
+
+    <div class="card" style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Nhà mạng</th>
+            <th>Mệnh giá</th>
+            <th>Số seri</th>
+            <th>Mã thẻ</th>
+            <th>Zalo / SĐT</th>
+            <th>Trạng thái</th>
+            <th>Mã kích hoạt</th>
+            <th>Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="cardsBody">
+          <tr><td colspan="8" style="text-align:center;color:#64748b;">Đang tải...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    function showToast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.style.display = "block";
+      clearTimeout(window.__t);
+      window.__t = setTimeout(() => { t.style.display = "none"; }, 2800);
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    async function loadCards() {
+      const res = await fetch("/api/cards");
+      const data = await res.json();
+      const cards = data.cards || [];
+      document.getElementById("cntPending").textContent = cards.filter(c => c.status === "pending").length;
+      document.getElementById("cntApproved").textContent = cards.filter(c => c.status === "approved").length;
+      document.getElementById("cntRejected").textContent = cards.filter(c => c.status === "rejected").length;
+
+      const tbody = document.getElementById("cardsBody");
+      if (!cards.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#64748b;">Chưa có thẻ cào nào.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = cards.map(c => {
+        const badgeCls = c.status === "approved" ? "badge-approved" : c.status === "rejected" ? "badge-rejected" : "badge-pending";
+        const badgeTxt = c.status === "approved" ? "✅ Đã duyệt" : c.status === "rejected" ? "❌ Từ chối" : "⏳ Chờ duyệt";
+        return `<tr>
+          <td><strong>${esc(c.telco)}</strong></td>
+          <td>${Number(c.amount || 30000).toLocaleString("vi-VN")}đ (${c.plan === "2m" ? "2 tháng" : "1 tháng"})</td>
+          <td><code>${esc(c.serial)}</code></td>
+          <td><code>${esc(c.pin)}</code></td>
+          <td>${esc(c.contact)}</td>
+          <td><span class="badge ${badgeCls}">${badgeTxt}</span></td>
+          <td>${c.licenseCode ? `<code>${esc(c.licenseCode)}</code>` : "—"}</td>
+          <td>
+            <div class="actions">
+              ${c.status !== "approved" ? `<button class="btn btn-primary" onclick="approveCard('${esc(c.id)}')">✅ Duyệt &amp; Tạo mã</button>` : ""}
+              ${c.licenseCode ? `<button class="btn btn-soft" onclick="copyCode('${esc(c.licenseCode)}')">📋 Copy mã</button>` : ""}
+              ${c.status === "pending" ? `<button class="btn btn-danger" onclick="rejectCard('${esc(c.id)}')">❌ Từ chối</button>` : ""}
+            </div>
+          </td>
+        </tr>`;
+      }).join("");
+    }
+
+    async function addManualCard() {
+      const telco = document.getElementById("addTelco").value;
+      const amount = parseInt(document.getElementById("addAmount").value, 10);
+      const serial = document.getElementById("addSerial").value.trim();
+      const pin = document.getElementById("addPin").value.trim();
+      const contact = document.getElementById("addContact").value.trim();
+      if (!serial || !pin || !contact) {
+        showToast("Nhập đủ Seri, Mã thẻ và Zalo/SĐT nhé!");
+        return;
+      }
+      const res = await fetch("/api/cards", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ telco, amount, serial, pin, contact }),
+      });
+      if (res.ok) {
+        document.getElementById("addSerial").value = "";
+        document.getElementById("addPin").value = "";
+        document.getElementById("addContact").value = "";
+        showToast("Đã thêm thẻ vào danh sách chờ duyệt!");
+        loadCards();
+      }
+    }
+
+    async function approveCard(id) {
+      const res = await fetch(`/api/cards/${encodeURIComponent(id)}/approve`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok && data.card?.licenseCode) {
+        copyCode(data.card.licenseCode);
+        showToast(`✅ Đã duyệt & copy mã: ${data.card.licenseCode}`);
+        loadCards();
+      }
+    }
+
+    async function rejectCard(id) {
+      await fetch(`/api/cards/${encodeURIComponent(id)}/reject`, { method: "POST" });
+      showToast("❌ Đã đánh dấu từ chối thẻ.");
+      loadCards();
+    }
+
+    function copyCode(code) {
+      navigator.clipboard?.writeText(code).catch(() => {});
+      showToast(`📋 Đã copy mã: ${code}`);
+    }
+
+    loadCards();
+    setInterval(loadCards, 5000);
+  </script>
+</body>
+</html>

@@ -76,6 +76,13 @@ const els =
         btnGen1M: document.getElementById("btnGen1M"),
         btnGen2M: document.getElementById("btnGen2M"),
         generatedCodeOutput: document.getElementById("generatedCodeOutput"),
+        cardTelcoSelect: document.getElementById("cardTelcoSelect"),
+        cardAmountSelect: document.getElementById("cardAmountSelect"),
+        cardSerialInput: document.getElementById("cardSerialInput"),
+        cardPinInput: document.getElementById("cardPinInput"),
+        cardContactInput: document.getElementById("cardContactInput"),
+        btnSubmitCard: document.getElementById("btnSubmitCard"),
+        cardSubmitResult: document.getElementById("cardSubmitResult"),
         toast: document.getElementById("toast"),
       }
     : {};
@@ -232,6 +239,7 @@ function bindEvents() {
     const code = els.generatedCodeOutput.dataset.code || "";
     if (code) copyText(code, `Đã copy mã: ${code}`);
   });
+  els.btnSubmitCard?.addEventListener("click", handleSubmitCard);
 }
 
 async function handlePasteClipboard() {
@@ -422,6 +430,75 @@ function handleGenerateCustomerCode(plan) {
     els.generatedCodeOutput.classList.remove("hidden");
   }
   copyText(code, `Đã tạo & copy mã ${plan === "2m" ? "2 tháng" : "1 tháng"}: ${code}`);
+}
+
+const LOCAL_CARD_API = "http://localhost:8787/api/cards";
+
+async function handleSubmitCard() {
+  const telco = els.cardTelcoSelect?.value || "Viettel";
+  const amount = parseInt(els.cardAmountSelect?.value || "30000", 10);
+  const serial = (els.cardSerialInput?.value || "").trim();
+  const pin = (els.cardPinInput?.value || "").trim();
+  const contact = (els.cardContactInput?.value || "").trim();
+
+  if (serial.length < 6 || pin.length < 8) {
+    showToast("Vui lòng nhập đầy đủ Số seri và Mã thẻ cào hợp lệ.");
+    return;
+  }
+  if (contact.length < 6) {
+    showToast("Vui lòng nhập SĐT hoặc Zalo để shop gửi mã kích hoạt.");
+    els.cardContactInput?.focus();
+    return;
+  }
+
+  const payload = {
+    telco,
+    amount,
+    plan: amount >= 50000 ? "2m" : "1m",
+    serial,
+    pin,
+    contact,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (els.btnSubmitCard) els.btnSubmitCard.disabled = true;
+  let sentToLocalhost = false;
+
+  try {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 2500) : null;
+    const res = await fetch(LOCAL_CARD_API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: ctrl?.signal,
+    });
+    if (timer) clearTimeout(timer);
+    if (res.ok) sentToLocalhost = true;
+  } catch {
+    sentToLocalhost = false;
+  } finally {
+    if (els.btnSubmitCard) els.btnSubmitCard.disabled = false;
+  }
+
+  const summaryText = `NẠP THẺ GOMĐƠN | ${telco} ${amount.toLocaleString("vi-VN")}đ | Seri: ${serial} | Mã thẻ: ${pin} | Zalo/SĐT: ${contact}`;
+
+  if (els.cardSubmitResult) {
+    els.cardSubmitResult.classList.remove("hidden");
+    if (sentToLocalhost) {
+      els.cardSubmitResult.innerHTML =
+        "✅ <strong>Đã gửi thẻ lên hệ thống duyệt!</strong> Shop sẽ kiểm tra và gửi mã kích hoạt qua Zalo/SĐT của bạn sớm nhất.";
+      if (els.cardSerialInput) els.cardSerialInput.value = "";
+      if (els.cardPinInput) els.cardPinInput.value = "";
+    } else {
+      els.cardSubmitResult.innerHTML =
+        '📋 Chưa kết nối trực tiếp tới máy chủ duyệt thẻ — hãy bấm <button type="button" id="btnCopyCardSummary" class="btn btn-soft btn-sm" style="margin:2px 4px;">Copy thông tin thẻ</button> rồi gửi qua Zalo cho shop nhé!';
+      document.getElementById("btnCopyCardSummary")?.addEventListener("click", () => {
+        copyText(summaryText, "Đã copy thông tin thẻ! Hãy dán gửi qua Zalo cho shop.");
+      });
+    }
+  }
+  showToast(sentToLocalhost ? "✅ Đã gửi thẻ chờ duyệt!" : "📋 Bấm Copy thông tin thẻ để gửi Zalo cho shop!");
 }
 
 function updateTrialAndPlanUI() {

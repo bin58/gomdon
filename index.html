@@ -217,14 +217,51 @@
           </div>
         </div>
 
-        <div class="qr-placeholder">
-          <div class="qr-box">MÃ VIETQR<br/>CỦA SHOP</div>
-          <div>
-            <strong>Chuyển khoản kích hoạt ngay:</strong>
-            <p class="muted" style="margin-top: 6px;">
-              Chuyển <strong>30.000đ</strong> (1 tháng) hoặc <strong>50.000đ</strong> (2 tháng) với nội dung: <code>GOMDON + SĐT của bạn</code>. Sau đó nhắn Zalo để nhận mã kích hoạt!
-            </p>
+        <div class="card-apology-note">
+          🙏 <strong>Xin lỗi quý khách:</strong> Hiện hệ thống ngân hàng / VietQR đang gặp sự cố bảo trì nên shop tạm thời nhận thanh toán bằng <strong>thẻ cào điện thoại</strong>. Mong quý khách thông cảm!
+        </div>
+
+        <div class="scratch-card-box">
+          <div class="scratch-card-title">📱 Nạp thẻ cào kích hoạt gói</div>
+          <div class="scratch-grid">
+            <select id="cardTelcoSelect" class="license-input" aria-label="Nhà mạng">
+              <option value="Viettel">Viettel</option>
+              <option value="Mobifone">Mobifone</option>
+              <option value="Vinaphone">Vinaphone</option>
+              <option value="Vietnamobile">Vietnamobile</option>
+            </select>
+            <select id="cardAmountSelect" class="license-input" aria-label="Mệnh giá">
+              <option value="30000">30.000đ (Gói 1 tháng)</option>
+              <option value="50000">50.000đ (Gói 2 tháng)</option>
+            </select>
           </div>
+          <div class="scratch-grid">
+            <input
+              id="cardSerialInput"
+              class="license-input"
+              type="text"
+              placeholder="Số seri thẻ cào..."
+              autocomplete="off"
+            />
+            <input
+              id="cardPinInput"
+              class="license-input"
+              type="text"
+              placeholder="Mã thẻ cào..."
+              autocomplete="off"
+            />
+          </div>
+          <div class="license-row">
+            <input
+              id="cardContactInput"
+              class="license-input"
+              type="text"
+              placeholder="SĐT / Zalo của bạn để nhận mã kích hoạt..."
+              autocomplete="off"
+            />
+            <button id="btnSubmitCard" class="btn btn-primary" type="button">Gửi thẻ chờ duyệt</button>
+          </div>
+          <div id="cardSubmitResult" class="card-submit-result hidden"></div>
         </div>
 
         <div class="license-box">
