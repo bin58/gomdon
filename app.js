@@ -13,6 +13,9 @@ const STORAGE_KEYS = {
 const FREE_TRIAL_LIMIT = 5;
 const OWNER_CODE_HASH = "7952b3";
 const LICENSE_SALT = "GD_PLAN_2026_V1";
+// Điền URL & Anon Key từ Supabase Project Settings -> API để đồng bộ tài khoản lên Cloud
+const SUPABASE_URL = "https://nttxagqevhennjlcfhdx.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Vq8y55xdOAOxcJZBWNEegQ_SlGsoeQj";
 
 const SAMPLES = {
   food: `Chị Lan 0912 345 678 giao 2 trà sữa trân châu đường đen + 1 bánh tráng trộn tới 45 Nguyễn Trãi, Thanh Xuân, HN. Tổng 95k ship trước 5h nhé
@@ -373,6 +376,7 @@ function consumeTrialUse() {
   const next = Math.min(FREE_TRIAL_LIMIT, getTrialUsed() + 1);
   safeStorageSet(STORAGE_KEYS.TRIAL_USED, String(next));
   updateTrialAndPlanUI();
+  syncCurrentAccountToCloud();
 }
 
 function getCodeChecksum(prefix, token) {
@@ -441,6 +445,8 @@ function activateLicenseCode(rawCode) {
   saveUsedCode(code);
   safeStorageSet(STORAGE_KEYS.LICENSE, JSON.stringify({ plan, expiresAt, code, activatedAt: Date.now() }));
   updateTrialAndPlanUI();
+  updateAuthUI();
+  syncCurrentAccountToCloud();
   return {
     ok: true,
     plan,
@@ -636,7 +642,65 @@ function updateAuthUI() {
   }
 }
 
-function handleAuthSubmit(e) {
+function isSupabaseConfigured() {
+  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && !SUPABASE_URL.includes("YOUR_"));
+}
+
+async function supabaseRest(path, options = {}) {
+  const base = SUPABASE_URL.replace(/\/+$/, "");
+  const authHeaders = SUPABASE_ANON_KEY.startsWith("eyJ")
+    ? { Authorization: `Bearer ${SUPABASE_ANON_KEY}` }
+    : {};
+  const res = await fetch(`${base}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      ...authHeaders,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  return res;
+}
+
+async function syncCurrentAccountToCloud() {
+  const session = getCurrentUserSession();
+  if (!session || !isSupabaseConfigured()) return;
+  const lic = getLicenseState();
+  const payload = {
+    plan: lic?.plan || "free",
+    expires_at: lic?.expiresAt || null,
+    trial_used: getTrialUsed(),
+    used_codes: getUsedCodes(),
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    await supabaseRest(`gomdon_accounts?username=eq.${encodeURIComponent(session.username)}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Bỏ qua lỗi mạng tạm thời, dữ liệu vẫn đã lưu local
+  }
+}
+
+function applyCloudAccountToLocal(row) {
+  if (!row || typeof row !== "object") return;
+  if (typeof row.trial_used === "number") {
+    safeStorageSet(STORAGE_KEYS.TRIAL_USED, String(Math.max(0, row.trial_used)));
+  }
+  if (Array.isArray(row.used_codes)) {
+    safeStorageSet(STORAGE_KEYS.USED_CODES, JSON.stringify(row.used_codes));
+  }
+  if (row.plan === "owner") {
+    safeStorageSet(STORAGE_KEYS.LICENSE, JSON.stringify({ plan: "owner", expiresAt: null }));
+  } else if ((row.plan === "1m" || row.plan === "2m") && typeof row.expires_at === "number" && row.expires_at > Date.now()) {
+    safeStorageSet(STORAGE_KEYS.LICENSE, JSON.stringify({ plan: row.plan, expiresAt: row.expires_at }));
+  }
+  updateTrialAndPlanUI();
+}
+
+async function handleAuthSubmit(e) {
   e.preventDefault();
   const username = (els.authUsernameInput?.value || "").trim().toLowerCase();
   const password = els.authPasswordInput?.value || "";
@@ -659,46 +723,96 @@ function handleAuthSubmit(e) {
 
   const users = getUsersMap();
   const passHash = fnv1aHash(`GD_USER_SALT_2026:${username}:${password}`);
+  const useCloud = isSupabaseConfigured();
 
-  if (authMode === "register") {
-    const confirmPass = els.authConfirmInput?.value || "";
-    const displayName = (els.authDisplayNameInput?.value || "").trim() || username;
-    if (password !== confirmPass) {
-      showToast("Mật khẩu nhập lại chưa khớp.");
-      return;
+  if (els.btnAuthSubmit) els.btnAuthSubmit.disabled = true;
+  try {
+    if (authMode === "register") {
+      const confirmPass = els.authConfirmInput?.value || "";
+      const displayName = (els.authDisplayNameInput?.value || "").trim() || username;
+      if (password !== confirmPass) {
+        showToast("Mật khẩu nhập lại chưa khớp.");
+        return;
+      }
+
+      if (useCloud) {
+        const checkRes = await supabaseRest(
+          `gomdon_accounts?username=eq.${encodeURIComponent(username)}&select=username`
+        );
+        const existingRows = checkRes.ok ? await checkRes.json() : [];
+        if (existingRows.length > 0) {
+          showToast("Tài khoản này đã tồn tại trên hệ thống! Hãy chuyển sang tab Đăng nhập.");
+          return;
+        }
+        const lic = getLicenseState();
+        const insRes = await supabaseRest("gomdon_accounts", {
+          method: "POST",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify({
+            username,
+            display_name: displayName,
+            pass_hash: passHash,
+            plan: lic?.plan || "free",
+            expires_at: lic?.expiresAt || null,
+            trial_used: getTrialUsed(),
+            used_codes: getUsedCodes(),
+          }),
+        });
+        if (!insRes.ok) {
+          showToast("Không thể lưu tài khoản lên Cloud. Vui lòng thử lại.");
+          return;
+        }
+      } else if (users[username]) {
+        showToast("Tài khoản này đã tồn tại! Hãy chuyển sang tab Đăng nhập.");
+        return;
+      }
+
+      users[username] = { username, displayName, passHash, createdAt: Date.now() };
+      safeStorageSet(STORAGE_KEYS.USERS, JSON.stringify(users));
+      safeStorageSet(STORAGE_KEYS.SESSION, JSON.stringify({ username, displayName }));
+      updateAuthUI();
+      closeModal("authModal");
+      showToast(`🎉 Đăng ký thành công! Xin chào ${displayName}`);
+    } else {
+      let loggedUser = null;
+      if (useCloud) {
+        const res = await supabaseRest(
+          `gomdon_accounts?username=eq.${encodeURIComponent(username)}&select=*`
+        );
+        const rows = res.ok ? await res.json() : [];
+        const cloudRow = rows[0];
+        if (!cloudRow || cloudRow.pass_hash !== passHash) {
+          showToast("Sai tên đăng nhập hoặc mật khẩu.");
+          return;
+        }
+        applyCloudAccountToLocal(cloudRow);
+        loggedUser = {
+          username: cloudRow.username,
+          displayName: cloudRow.display_name || cloudRow.username,
+        };
+      } else {
+        const user = users[username];
+        if (!user || user.passHash !== passHash) {
+          showToast("Sai tên đăng nhập hoặc mật khẩu.");
+          return;
+        }
+        loggedUser = { username: user.username, displayName: user.displayName };
+      }
+
+      safeStorageSet(STORAGE_KEYS.SESSION, JSON.stringify(loggedUser));
+      updateAuthUI();
+      closeModal("authModal");
+      showToast(`✅ Đăng nhập thành công! Xin chào ${loggedUser.displayName || loggedUser.username}`);
     }
-    if (users[username]) {
-      showToast("Tài khoản này đã tồn tại! Hãy chuyển sang tab Đăng nhập.");
-      return;
-    }
-    users[username] = {
-      username,
-      displayName,
-      passHash,
-      createdAt: Date.now(),
-    };
-    safeStorageSet(STORAGE_KEYS.USERS, JSON.stringify(users));
-    safeStorageSet(STORAGE_KEYS.SESSION, JSON.stringify({ username, displayName }));
-    updateAuthUI();
-    closeModal("authModal");
-    showToast(`🎉 Đăng ký thành công! Xin chào ${displayName}`);
-  } else {
-    const user = users[username];
-    if (!user || user.passHash !== passHash) {
-      showToast("Sai tên đăng nhập hoặc mật khẩu.");
-      return;
-    }
-    safeStorageSet(
-      STORAGE_KEYS.SESSION,
-      JSON.stringify({ username: user.username, displayName: user.displayName })
-    );
-    updateAuthUI();
-    closeModal("authModal");
-    showToast(`✅ Đăng nhập thành công! Xin chào ${user.displayName || user.username}`);
+
+    if (els.authPasswordInput) els.authPasswordInput.value = "";
+    if (els.authConfirmInput) els.authConfirmInput.value = "";
+    refreshAuthCaptcha();
+  } catch {
+    showToast("Lỗi kết nối máy chủ tài khoản. Vui lòng thử lại.");
+  } finally {
+    if (els.btnAuthSubmit) els.btnAuthSubmit.disabled = false;
   }
-
-  if (els.authPasswordInput) els.authPasswordInput.value = "";
-  if (els.authConfirmInput) els.authConfirmInput.value = "";
 }
 
 function handleLogout() {
