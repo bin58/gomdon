@@ -581,5 +581,19 @@ describe("R4 preserved behaviors & sample datasets", () => {
     assert.equal(dateShort.items, "1 bánh");
     assert.equal(dateShort.address, "10 Lê Lợi");
     assert.match(dateShort.note, /giao 25\/11/i);
+
+    const [cocParen] = parseLocallyVietnamese(
+      "Chị A 0912345678 đặt 1 áo 200k (đã cọc 50k) tới 10 Lê Lợi"
+    );
+    assert.equal(cocParen.note, "đã cọc 50k");
+    assert.equal(cocParen.total, 200000);
+
+    const twoLinesOneMissingPhone = parseLocallyVietnamese(
+      "Chị Lan 0912345678 1 áo 100k 12 Lê Lợi\nAnh Minh 2 quần 200k 45 Nguyễn Trãi"
+    );
+    assert.equal(twoLinesOneMissingPhone.length, 2);
+    assert.equal(twoLinesOneMissingPhone[0].phone, "0912345678");
+    assert.equal(twoLinesOneMissingPhone[1].name, "Anh Minh");
+    assert.equal(twoLinesOneMissingPhone[1].phone, "");
   });
 });

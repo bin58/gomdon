@@ -973,7 +973,7 @@ body {
 [data-theme="dark"] .btn-soft {
   background: #1e293b;
   color: #e2e8f0;
-  border-color: #334155;
+  border: 1px solid #334155;
 }
 
 [data-theme="dark"] .btn-soft:hover {

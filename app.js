@@ -372,6 +372,12 @@ function activateLicenseCode(rawCode) {
   const days = prefix === "GD2M" ? 60 : 30;
   const newPlan = prefix === "GD2M" ? "2m" : "1m";
   const existing = getLicenseState();
+  if (existing?.plan === "owner") {
+    return {
+      ok: false,
+      message: "Bạn đang ở chế độ Chủ sở hữu (miễn phí vĩnh viễn), không cần kích hoạt thêm mã gói!",
+    };
+  }
   const baseTime =
     existing && (existing.plan === "1m" || existing.plan === "2m") && existing.expiresAt > Date.now()
       ? existing.expiresAt
@@ -561,6 +567,17 @@ function parseLocallyVietnamese(rawText) {
       }
       const independentOrderLines = lines.filter(isIndependentOrderLine).length;
       if (independentOrderLines >= 2) {
+        return lines;
+      }
+      const isStandaloneNoPhoneOrderLine = (line) => {
+        if (secondaryLabelRe.test(line) || callInstructionLineRe.test(line)) return false;
+        if (extractPhone(line)) return false;
+        const parsedLine = parseSingleBlockLocal(line);
+        return Boolean(parsedLine.items && (parsedLine.name || parsedLine.address));
+      };
+      const standaloneTotal =
+        independentOrderLines + lines.filter(isStandaloneNoPhoneOrderLine).length;
+      if (standaloneTotal === lines.length && lines.length >= 2) {
         return lines;
       }
       return [block];
@@ -902,11 +919,15 @@ function parseSingleBlockLocal(text) {
     }
   }
 
-  // Tách trường hợp tên dính vào món (vd: "Chị Lan giao 2 trà sữa" hoặc "Chị Hương đặt 2 hộp chân gà")
+  // Tách trường hợp tên dính vào món (vd: "Chị Lan giao 2 trà sữa" hoặc "Anh Minh 2 quần")
   if (!name && items) {
-    const splitNameItem = items.match(
-      /^((?:chị|anh|em|bé|cô|chú|bạn|mr|ms|mrs)?\s*[A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+){0,3})\s+(?:đặt|lấy|mua|giao|order|cho)\s+(.+)$/i
-    );
+    const splitNameItem =
+      items.match(
+        /^((?:chị|anh|em|bé|cô|chú|bạn|mr|ms|mrs)?\s*[A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+){0,3})\s+(?:đặt|lấy|mua|giao|order|cho)\s+(.+)$/i
+      ) ||
+      items.match(
+        /^((?:chị|anh|em|bé|cô|chú|bạn|mr|ms|mrs)\s+[A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+){0,2})\s+(\d+\s+.+)$/i
+      );
     if (splitNameItem) {
       name = splitNameItem[1].trim();
       items = splitNameItem[2].trim();
@@ -918,6 +939,15 @@ function parseSingleBlockLocal(text) {
     if (m) {
       name = m[1].trim();
       items = items ? `${m[2].trim()}, ${items}` : m[2].trim();
+    }
+  } else if (name) {
+    const mNameQty = name.match(
+      /^((?:chị|anh|em|bé|cô|chú|bạn|mr|ms|mrs)\s+[A-ZÀ-Ỹ][a-zà-ỹ]+(?:\s+[A-ZÀ-Ỹ][a-zà-ỹ]+){0,2})\s+(\d+\s+[a-zA-ZÀ-ỹ].+)$/i
+    );
+    if (mNameQty) {
+      name = cleanName(mNameQty[1]);
+      const extraItem = cleanItem(mNameQty[2]);
+      if (extraItem) items = items ? `${extraItem}, ${items}` : extraItem;
     }
   }
 
@@ -1102,9 +1132,9 @@ function looksLikeItem(s) {
 function cleanSegment(s) {
   return String(s || "")
     .replace(/\uFFF0/g, "")
-    .replace(/^[,;:\-–.\s]+|[,;:\-–.\s]+$/g, "")
+    .replace(/^[,;:\-–.|\s]+|[,;:\-–.|\s]+$/g, "")
     .replace(/^[+&]+(?:\s+|$)|(?:^|\s+)[+&]+$/g, "")
-    .replace(/^[,;:\-–.\s]+|[,;:\-–.\s]+$/g, "")
+    .replace(/^[,;:\-–.|\s]+|[,;:\-–.|\s]+$/g, "")
     .trim();
 }
 
