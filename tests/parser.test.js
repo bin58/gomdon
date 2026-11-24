@@ -505,5 +505,81 @@ describe("R4 preserved behaviors & sample datasets", () => {
     );
     assert.equal(sizeOrder.items, "1 áo (size M)");
     assert.equal(sizeOrder.note, "");
+
+    const [phoOrder] = parseLocallyVietnamese(
+      "Tuấn 0986686887 phở thêm nhiều thịt ở 30/4 vũng tàu hẻm 808"
+    );
+    assert.equal(phoOrder.name, "Tuấn");
+    assert.equal(phoOrder.phone, "0986686887");
+    assert.equal(phoOrder.items, "phở thêm nhiều thịt");
+    assert.equal(phoOrder.address, "30/4 vũng tàu hẻm 808");
+  });
+
+  it("handles cọc-còn, unit prices (/hộp, /1 ly, x 150k), SĐT người nhận, qty packing/suffix, Zalo PC, parens, and note tails", () => {
+    const [cocCon] = parseLocallyVietnamese(
+      "Chị Ly 0912345678 đặt 1 áo 250k - cọc 50k còn 200k - 10 Lê Lợi, Q1"
+    );
+    assert.equal(cocCon.total, 200000);
+    assert.equal(cocCon.items, "1 áo");
+    assert.match(cocCon.note, /cọc 50k/i);
+
+    const [unit1] = parseLocallyVietnamese("Chị A 0912345678 3 hộp bánh giá 50k/hộp 12 Lê Lợi Q1");
+    assert.equal(unit1.qty, 3);
+    assert.equal(unit1.total, 150000);
+    assert.equal(unit1.items, "3 hộp bánh");
+
+    const [unit2] = parseLocallyVietnamese("Chị B 0912345678 2 ly trà sữa 35k/1 ly 12 Lê Lợi Q1");
+    assert.equal(unit2.qty, 2);
+    assert.equal(unit2.total, 70000);
+    assert.equal(unit2.items, "2 ly trà sữa");
+
+    const [unit3] = parseLocallyVietnamese("Chị C 0912345678 2 áo x 150k 12 Lê Lợi Q1");
+    assert.equal(unit3.qty, 2);
+    assert.equal(unit3.total, 300000);
+    assert.equal(unit3.items, "2 áo");
+
+    const recOrders = parseLocallyVietnamese(
+      "Chị P 0912345678 1 áo 100k tới 10 Lê Lợi\nSĐT người nhận: 0987654321 (Anh Tuấn)"
+    );
+    assert.equal(recOrders.length, 1);
+    assert.equal(recOrders[0].phone, "0912345678");
+    assert.match(recOrders[0].note, /0987654321/);
+    assert.match(recOrders[0].note, /Anh Tuấn/);
+
+    const [packOrder] = parseLocallyVietnamese("Anh D 0912345678 1 thùng 24 lon bia 350k 12 Lê Lợi Q1");
+    assert.equal(packOrder.qty, 1);
+
+    const [suffixOrder] = parseLocallyVietnamese(
+      "Chị E 0912345678 áo thun đen x2, quần trắng x1 tổng 450k 12 Lê Lợi Q1"
+    );
+    assert.equal(suffixOrder.qty, 3);
+    assert.equal(suffixOrder.total, 450000);
+
+    const [zaloOrder] = parseLocallyVietnamese(
+      "[14:30 24/11/2026] Nguyễn Lan: Cho chị 2 cơm tấm 100k tới 10 Lê Lợi 0912345678"
+    );
+    assert.equal(zaloOrder.name, "Nguyễn Lan");
+    assert.equal(zaloOrder.items, "2 cơm tấm");
+    assert.equal(zaloOrder.total, 100000);
+    assert.equal(zaloOrder.address, "10 Lê Lợi");
+
+    const [parenColor] = parseLocallyVietnamese(
+      "Chị F 0912345678 2 áo thun (1 đen, 1 trắng) 300k 12 Lê Lợi Q1"
+    );
+    assert.equal(parenColor.items, "2 áo thun (1 đen, 1 trắng)");
+    assert.equal(parenColor.qty, 2);
+
+    const [lhOrder] = parseLocallyVietnamese(
+      "Chị G 0912345678 1 bánh 50k 10 Lê Lợi\nLH 0987654321 nếu không gọi được"
+    );
+    assert.equal(lhOrder.items, "1 bánh");
+    assert.match(lhOrder.note, /nếu không gọi được/i);
+
+    const [dateShort] = parseLocallyVietnamese(
+      "Chị H 0912345678 1 bánh 50k giao 25/11 tới 10 Lê Lợi"
+    );
+    assert.equal(dateShort.items, "1 bánh");
+    assert.equal(dateShort.address, "10 Lê Lợi");
+    assert.match(dateShort.note, /giao 25\/11/i);
   });
 });

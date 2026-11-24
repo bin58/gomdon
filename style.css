@@ -970,6 +970,16 @@ body {
   color: #6ee7b7;
 }
 
+[data-theme="dark"] .btn-soft {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-color: #334155;
+}
+
+[data-theme="dark"] .btn-soft:hover {
+  background: #334155;
+}
+
 @media (max-width: 760px) {
   .hide-mobile { display: none; }
   .topbar-inner { gap: 8px; padding: 10px 0; }

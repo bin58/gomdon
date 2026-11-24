@@ -5,6 +5,7 @@ const STORAGE_KEYS = {
   THEME: "gomdon_theme_v1",
   TRIAL_USED: "gomdon_trial_used_v1",
   LICENSE: "gomdon_license_v1",
+  USED_CODES: "gomdon_used_codes_v1",
 };
 
 const FREE_TRIAL_LIMIT = 5;
@@ -325,6 +326,24 @@ function getCodeChecksum(prefix, token) {
   return fnv1aHash(`${LICENSE_SALT}:${prefix}-${token}`).slice(0, 2).toUpperCase();
 }
 
+function getUsedCodes() {
+  try {
+    const raw = safeStorageGet(STORAGE_KEYS.USED_CODES);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveUsedCode(code) {
+  const used = getUsedCodes();
+  if (!used.includes(code)) {
+    used.push(code);
+    safeStorageSet(STORAGE_KEYS.USED_CODES, JSON.stringify(used));
+  }
+}
+
 function activateLicenseCode(rawCode) {
   const code = String(rawCode || "").trim().toUpperCase();
   if (!code) return { ok: false, message: "Vui lòng nhập mã kích hoạt." };
@@ -346,9 +365,21 @@ function activateLicenseCode(rawCode) {
     return { ok: false, message: "Mã kích hoạt không đúng. Vui lòng liên hệ Zalo shop." };
   }
 
+  if (getUsedCodes().includes(code)) {
+    return { ok: false, message: "Mã này đã được sử dụng trên thiết bị này rồi." };
+  }
+
   const days = prefix === "GD2M" ? 60 : 30;
-  const plan = prefix === "GD2M" ? "2m" : "1m";
-  const expiresAt = Date.now() + days * 86400000;
+  const newPlan = prefix === "GD2M" ? "2m" : "1m";
+  const existing = getLicenseState();
+  const baseTime =
+    existing && (existing.plan === "1m" || existing.plan === "2m") && existing.expiresAt > Date.now()
+      ? existing.expiresAt
+      : Date.now();
+  const expiresAt = baseTime + days * 86400000;
+  const plan = existing?.plan === "2m" || newPlan === "2m" ? "2m" : "1m";
+
+  saveUsedCode(code);
   safeStorageSet(STORAGE_KEYS.LICENSE, JSON.stringify({ plan, expiresAt, code, activatedAt: Date.now() }));
   updateTrialAndPlanUI();
   return {
@@ -440,6 +471,8 @@ function updateTrialAndPlanUI() {
 }
 
 // ===== MAIN PARSE HANDLER =====
+let lastParsedRawText = "";
+
 function handleParse() {
   if (!hasActiveAccess()) {
     showToast("Bạn đã dùng hết 5 lần miễn phí. Chọn gói 30k/tháng hoặc 50k/2 tháng để tiếp tục nhé!");
@@ -455,16 +488,27 @@ function handleParse() {
   }
 
   const parsed = parseLocallyVietnamese(rawText);
-  if (!parsed.length) {
-    showToast("Không tìm thấy đơn hàng nào trong đoạn văn bản.");
+  const hasRealOrderData = parsed.some((o) => Boolean(o.phone || o.address || o.total > 0));
+  if (!parsed.length || !hasRealOrderData) {
+    showToast("Không nhận diện được đơn hàng nào (cần có SĐT, địa chỉ hoặc giá tiền) — chưa trừ lượt dùng thử.");
     return;
   }
 
+  const isSampleText = rawText === SAMPLES.food.trim() || rawText === SAMPLES.shop.trim();
+  const isSameAsLast = rawText === lastParsedRawText;
+
   orders = parsed;
   saveOrders();
-  consumeTrialUse();
+  if (!isSampleText && !isSameAsLast) {
+    consumeTrialUse();
+    lastParsedRawText = rawText;
+  }
   renderTable();
-  showToast(`✅ Đã tách thành công ${orders.length} đơn hàng!`);
+  showToast(
+    isSampleText
+      ? `✅ Đã tách thử ${orders.length} đơn mẫu (không trừ lượt dùng thử)!`
+      : `✅ Đã tách thành công ${orders.length} đơn hàng!`
+  );
   els.resultSection?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -486,7 +530,7 @@ function parseLocallyVietnamese(rawText) {
   if (!normalized) return [];
 
   const secondaryLabelRe =
-    /^(?:(?:sđt|sdt|đt|dt|số|điện thoại|phone)\s*(?:phụ|thứ\s*2|2|khác)(?![0-9a-zA-ZÀ-ỹ])|(?:sđt|sdt|đt|dt|điện thoại|phone|địa chỉ|đc|đ\/c|món|sản phẩm|sp|đơn hàng|đặt món|order|ghi chú|note|lưu ý)\s*[:\-])/i;
+    /^(?:(?:sđt|sdt|đt|dt|số|điện thoại|phone)\s*(?:phụ|thứ\s*2|2|khác|người\s*nhận|nhận\s*hàng|nhận)(?![0-9a-zA-ZÀ-ỹ])|(?:sđt|sdt|đt|dt|điện thoại|phone|địa chỉ|đc|đ\/c|món|sản phẩm|sp|đơn hàng|đặt món|order|ghi chú|note|lưu ý)\s*[:\-])/i;
   const callInstructionLineRe = /^(?:gọi|liên hệ|lh)(?![0-9a-zA-ZÀ-ỹ])/i;
   const phoneStripForLineCheckRe = new RegExp(
     `(?:^|[^0-9a-zA-ZÀ-ỹ])(?:(?:sđt|sdt|đt|dt|điện thoại|phone)\\s*[:\\-]?\\s*)?${PHONE_CORE_PATTERN}(?![0-9])`,
@@ -636,18 +680,27 @@ function splitCommaSegmentsSmart(part, hasName) {
 }
 
 function parseSingleBlockLocal(text) {
-  const cleanedText = text.replace(/^(?:đơn\s*\d+\s*[:.\-]?|#?\d+[.)]\s+)/i, "").trim();
+  let cleanedText = text.replace(/^(?:đơn\s*\d+\s*[:.\-]?|#?\d+[.)]\s+)/i, "").trim();
+
+  let name = "";
+  let address = "";
+  let items = "";
+  const notes = [];
+
+  // Hỗ trợ copy trực tiếp từ Zalo PC / Messenger: "[14:30 24/11/2026] Nguyễn Lan: ..."
+  const zaloPrefixMatch = cleanedText.match(
+    /^\[(?:\d{1,2}:\d{2}(?:\s+\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)?|\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\s+\d{1,2}:\d{2})\]\s*([^:\n|]{2,45}?)\s*:\s*/
+  );
+  if (zaloPrefixMatch) {
+    name = cleanName(zaloPrefixMatch[1]);
+    cleanedText = cleanedText.slice(zaloPrefixMatch[0].length).trim();
+  }
 
   let working = cleanedText
     .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean)
     .join(" | ");
-
-  let name = "";
-  let address = "";
-  let items = "";
-  const notes = [];
 
   const addNote = (val) => {
     const cleaned = cleanSegment(val);
@@ -657,9 +710,9 @@ function parseSingleBlockLocal(text) {
   // 1. Trích xuất SĐT Việt Nam hợp lệ (không cắt nhầm từ chuỗi số dài như mã vận đơn)
   const phone = extractPhone(working);
   if (phone) {
-    // Tách SĐT phụ (vd: "SĐT phụ 0987654321", "Số thứ 2: 0987...") vào ghi chú trước khi xóa SĐT chính
+    // Tách SĐT phụ / SĐT người nhận vào ghi chú trước khi xóa SĐT chính
     const secondaryPhoneRe = new RegExp(
-      `(^|[^0-9a-zA-ZÀ-ỹ])((?:sđt|sdt|đt|dt|số|điện thoại|phone)\\s*(?:phụ|thứ\\s*2|2|khác)\\s*[:\\-]?\\s*${PHONE_CORE_PATTERN})(?![0-9])`,
+      `(^|[^0-9a-zA-ZÀ-ỹ])((?:sđt|sdt|đt|dt|số|điện thoại|phone)\\s*(?:phụ|thứ\\s*2|2|khác|người\\s*nhận|nhận\\s*hàng|nhận)\\s*[:\\-]?\\s*${PHONE_CORE_PATTERN})(?![0-9])`,
       "gi"
     );
     working = working.replace(secondaryPhoneRe, (_match, prefix, secPhrase) => {
@@ -667,9 +720,9 @@ function parseSingleBlockLocal(text) {
       return `${prefix} | `;
     });
 
-    // Xử lý cụm gọi điện kèm SĐT lặp lại hoặc SĐT phụ (vd: "gọi 0912345678 khi tới" / "trước khi giao")
+    // Xử lý cụm gọi điện kèm SĐT lặp lại hoặc SĐT phụ (vd: "gọi 0912345678 khi tới", "LH 0987... nếu không gọi được")
     const callPhraseRe = new RegExp(
-      `(^|[^0-9a-zA-ZÀ-ỹ])((?:gọi|liên hệ|lh)\\s*(?:lại\\s*)?(?:sđt|sdt|số)?\\s*[:\\-]?\\s*(?:${PHONE_CORE_PATTERN})(?:\\s*(?:(?:trước|trc)\\s*(?:khi|lúc)|khi|lúc)\\s*(?:tới(?:\\s*nơi)?|đến(?:\\s*nơi)?|giao(?:\\s*hàng)?))?(?:\\s*(?:nhé|nha|ạ|nhá))?)(?![0-9a-zA-ZÀ-ỹ])`,
+      `(^|[^0-9a-zA-ZÀ-ỹ])((?:gọi|liên hệ|lh)\\s*(?:lại\\s*)?(?:sđt|sdt|số)?\\s*[:\\-]?\\s*(?:${PHONE_CORE_PATTERN})(?:\\s*(?:(?:trước|trc)\\s*(?:khi|lúc)|khi|lúc|nếu)\\s*(?:tới(?:\\s*nơi)?|đến(?:\\s*nơi)?|giao(?:\\s*hàng)?|[^,.\n|]+))?(?:\\s*(?:nhé|nha|ạ|nhá))?)(?![0-9a-zA-ZÀ-ỹ])`,
       "gi"
     );
     working = working.replace(callPhraseRe, (match, prefix, phrase) => {
@@ -682,7 +735,7 @@ function parseSingleBlockLocal(text) {
             .replace(/^(?:gọi|liên hệ|lh)\s*(?:lại\s*)?(?:sđt|sdt|số)?\s*[:\-]?\s*/i, "")
             .replace(/\s+/g, " ")
         );
-        if (/^(?:(?:trước|trc)\s*(?:khi|lúc)|khi|lúc)\s*(?:tới|đến|giao)/i.test(strippedPhonePhrase)) {
+        if (/^(?:(?:trước|trc)\s*(?:khi|lúc)|khi|lúc|nếu)\s+/i.test(strippedPhonePhrase)) {
           addNote(`gọi ${strippedPhonePhrase}`);
         }
       } else {
@@ -765,8 +818,12 @@ function parseSingleBlockLocal(text) {
   }
 
   // 5. Trích xuất Ghi chú phổ biến & viết tắt tiếng Việt (dùng ranh giới Unicode thay cho \b, không dùng lookbehind)
-  const itemAttrParenRe =
-    /^(?:(?:size|sz|cỡ|màu|loại|vị|hương|mùi|bản|phiên\s*bản|combo|set|sl|số\s*lượng)\b|(?:xs|s|m|l|xl|xxl|xxxl|2xl|3xl|freesize|free\s*size|\d{2}(?:\s*-\s*\d{2})?(?:\s*kg)?)$|(?:đỏ|đen|trắng|xanh|vàng|hồng|tím|nâu|xám|ghi|be|kem|cam)(?:\s*[\/,&\-]\s*(?:đỏ|đen|trắng|xanh|vàng|hồng|tím|nâu|xám|ghi|be|kem|cam))*$)/i;
+  const itemAttrToken =
+    "(?:\\d+\\s*)?(?:xs|s|m|l|xl|xxl|xxxl|2xl|3xl|freesize|free\\s*size|\\d{2}(?:\\s*-\\s*\\d{2})?(?:\\s*kg)?|đỏ|đen|trắng|xanh|vàng|hồng|tím|nâu|xám|ghi|be|kem|cam)";
+  const itemAttrParenRe = new RegExp(
+    `^(?:(?:size|sz|cỡ|màu|loại|vị|hương|mùi|bản|phiên\\s*bản|combo|set|sl|số\\s*lượng)\\b|${itemAttrToken}(?:\\s*[,\\/&\\-+]\\s*${itemAttrToken})*$)`,
+    "i"
+  );
   working = working.replace(/\(([^)]+)\)/g, (match, inner) => {
     const trimmedInner = cleanSegment(inner);
     if (trimmedInner && itemAttrParenRe.test(trimmedInner)) {
@@ -777,7 +834,7 @@ function parseSingleBlockLocal(text) {
   });
 
   working = working.replace(
-    /(^|[^0-9a-zA-ZÀ-ỹ])((?:giao|ship|nhận)\s+(?:vào\s+)?(?:ngày\s+\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{2,4})?)|hôm\s+nay|ngày\s+mai|cuối\s+tuần|thứ\s+[2-7]|chủ\s+nhật|lúc\s+\d{1,2}(?:h\d{0,2}|:\d{2}|\s*giờ(?:\s*\d{1,2})?))(?:\s*(?:sáng|chiều|tối|trưa|nhé|nha|ạ|nhá))?|ngày\s+\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{2,4})?)|ship trước [^,.\n|]+|giao trước [^,.\n|]+|giao giờ hành chính|giao sáng|giao chiều|giao tối|ship\s+(?:nhanh|hỏa tốc|hoả tốc|gấp|thường|tiết kiệm|cod|liền|ngay)|giao\s+(?:nhanh|hỏa tốc|hoả tốc|gấp|liền|ngay)|gọi trc[^,.\n|]*|gọi trước[^,.\n|]*|đã chuyển khoản|đã ck|ck rồi|freeship|fs|ko hành|không hành|k hành|ko đá|k đá|ít đá|ít đường|ít ngọt|gói kín[^,.\n|]*)(?![0-9a-zA-ZÀ-ỹ])/gi,
+    /(^|[^0-9a-zA-ZÀ-ỹ])((?:giao|ship|nhận)\s+(?:vào\s+)?(?:(?:ngày\s+)?\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{2,4})?)|hôm\s+nay|ngày\s+mai|cuối\s+tuần|thứ\s+[2-7]|chủ\s+nhật|lúc\s+\d{1,2}(?:h\d{0,2}|:\d{2}|\s*giờ(?:\s*\d{1,2})?))(?:\s*(?:sáng|chiều|tối|trưa|nhé|nha|ạ|nhá))?|ngày\s+\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{2,4})?)|ship trước [^,.\n|]+|giao trước [^,.\n|]+|giao giờ hành chính|giao sáng|giao chiều|giao tối|ship\s+(?:nhanh|hỏa tốc|hoả tốc|gấp|thường|tiết kiệm|cod|liền|ngay)|giao\s+(?:nhanh|hỏa tốc|hoả tốc|gấp|liền|ngay)|gọi trc[^,.\n|]*|gọi trước[^,.\n|]*|đã chuyển khoản|đã ck|ck rồi|freeship|fs|ko hành|không hành|k hành|ko đá|k đá|ít đá|ít đường|ít ngọt|gói kín[^,.\n|]*)(?![0-9a-zA-ZÀ-ỹ])/gi,
     (_match, prefix, noteText) => {
       addNote(noteText);
       return `${prefix} | `;
@@ -794,7 +851,7 @@ function parseSingleBlockLocal(text) {
       address = addressPart;
       working = working.replace(strongAddr[1], restPart ? ` | ${restPart} | ` : " | ");
     } else {
-      const giaoAddr = working.match(/(?:^|[^0-9a-zA-ZÀ-ỹ])(giao\s*[:\-]?\s*([^|\n]+))/i);
+      const giaoAddr = working.match(/(?:^|[^0-9a-zA-ZÀ-ỹ])((?:giao(?:\s+(?:ở|tại|bên))?|ở|tại|bên)\s*[:\-]?\s*([^|\n]+))/i);
       if (giaoAddr) {
         const { addressPart, restPart } = extractAddressPrefixFromCommaCandidate(giaoAddr[2]);
         if (looksLikeAddress(addressPart)) {
@@ -925,16 +982,18 @@ function parseMoneyValue(rawNum, unit) {
 }
 
 function extractMoneyFromText(str) {
-  // Khớp tất cả các cụm tiền hợp lệ trong câu (1tr2, 1k5, tr/triệu, k/nghìn/ngàn, 500000đ, 120.000đ)
+  // Khớp cụm tiền (1tr2, 1k5, tr/triệu, k/nghìn/ngàn, 500000đ, 120.000đ), kèm "còn ...", "x 150k", "50k/hộp"
   const moneyRegex = new RegExp(
-    `(^|[^0-9a-zA-ZÀ-ỹ])((?:tổng cộng|tổng|cod|thu hộ|thành tiền|giá|tiền)\\s*[:\\-]?\\s*)?${MONEY_BODY_PATTERN}(?![0-9a-zA-ZÀ-ỹ])`,
+    `(^|[^0-9a-zA-ZÀ-ỹ])((?:tổng cộng|tổng|cod|thu hộ|thành tiền|còn lại|còn|thu thêm|phải thu|giá|tiền)\\s*[:\\-]?\\s*|[x×*]\\s*)?${MONEY_BODY_PATTERN}(\\s*\\/\\s*(?:\\d+\\s*)?[a-zA-ZÀ-ỹ]+)?(?![0-9a-zA-ZÀ-ỹ])`,
     "gi"
   );
 
   const matches = [];
   for (const m of str.matchAll(moneyRegex)) {
     const prefixLen = m[1] ? m[1].length : 0;
-    const keyword = (m[2] || "").trim().toLowerCase();
+    const rawPrefixKw = (m[2] || "").trim().toLowerCase();
+    const isMultiplyPrefix = /^[x×*]/.test(rawPrefixKw);
+    const hasPerUnitSuffix = Boolean(m[11]);
     let amount = 0;
     if (m[3] && m[4] && m[5]) {
       amount = parseShorthandMoneyValue(m[3], m[4], m[5]);
@@ -947,7 +1006,22 @@ function extractMoneyFromText(str) {
     }
 
     if (amount >= 1000) {
-      const isTotalKeyword = /^(tổng|cod|thu hộ|thành tiền)/.test(keyword);
+      const isTotalKeyword = /^(tổng|cod|thu hộ|thành tiền|còn|thu thêm|phải thu)/.test(rawPrefixKw);
+      if (!isTotalKeyword && (isMultiplyPrefix || hasPerUnitSuffix)) {
+        const beforeText = str.slice(0, m.index + prefixLen);
+        const segStart = Math.max(
+          beforeText.lastIndexOf(","),
+          beforeText.lastIndexOf("+"),
+          beforeText.lastIndexOf("|"),
+          beforeText.lastIndexOf("\n"),
+          beforeText.lastIndexOf(";")
+        );
+        const itemSeg = beforeText.slice(segStart + 1);
+        const segQty = estimateQuantity(itemSeg);
+        if (segQty > 1 && segQty < 500) {
+          amount = amount * segQty;
+        }
+      }
       matches.push({
         index: m.index + prefixLen,
         length: m[0].length - prefixLen,
@@ -1048,13 +1122,18 @@ function cleanName(s) {
 }
 
 function cleanItem(s) {
-  return cleanSegment(s.replace(/^(?:đặt|lấy|mua|giao|order|cho|món|sp|sản phẩm)\s*[:\-]?\s*/i, ""));
+  return cleanSegment(
+    s.replace(
+      /^(?:cho\s+(?:chị|anh|em|mình|shop)\s+|(?:chị|anh|em|mình)\s+(?:đặt|lấy|mua|order)\s+|đặt|lấy|mua|giao|order|cho|món|sp|sản phẩm)\s*[:\-]?\s*/i,
+      ""
+    )
+  );
 }
 
 function estimateQuantity(itemsStr) {
   if (!itemsStr) return 1;
-  // Loại bỏ số đo/size (vd: "size 38", "sz 40", "cỡ 36") và ngày/giờ để không cộng nhầm vào số lượng
-  const withoutSizes = itemsStr
+  // Loại bỏ số đo/size, ngày/giờ, và số lượng quy cách đóng gói (vd: "1 thùng 24 lon" -> tính 1 thùng)
+  let cleaned = itemsStr
     .replace(
       /(^|[^0-9a-zA-ZÀ-ỹ])(?:size|sz|cỡ)\s*[:\-]?\s*\d+(?:[.,]\d+)?(?![0-9a-zA-ZÀ-ỹ])/gi,
       "$1 "
@@ -1062,14 +1141,29 @@ function estimateQuantity(itemsStr) {
     .replace(
       /(^|[^0-9a-zA-ZÀ-ỹ])(?:ngày\s+\d{1,2}(?:\s+tháng\s+\d{1,2})?|\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\d{1,2}h\d{0,2})(?![0-9a-zA-ZÀ-ỹ])/gi,
       "$1 "
+    )
+    .replace(
+      /(\d+\s*(?:thùng|lốc|vỉ|hộp|túi|bịch|gói|set|combo|bó|chục|tá|cây)\s+)\d+(?=\s*[a-zA-ZÀ-ỹ])/gi,
+      "$1"
     );
-  // Cho phép viết liền đơn vị như "2kg nho", "3hộp bánh" hoặc có khoảng trắng "2 áo"
-  const matches = [...withoutSizes.matchAll(/(?:^|[+,&]\s*|\s)(\d+)\s*(?=[a-zA-ZÀ-ỹ])/gi)];
-  if (!matches.length) return 1;
-  const sum = matches.reduce((acc, m) => {
-    const n = parseInt(m[1], 10);
-    return acc + (Number.isFinite(n) && n > 0 && n < 500 ? n : 0);
-  }, 0);
+
+  // Nếu ngoài ngoặc đã có số lượng (vd: "2 áo thun (1 đen, 1 trắng)"), bỏ ngoặc để tránh cộng trùng
+  const withoutParens = cleaned.replace(/\([^)]*\)/g, " ");
+  const hasOutsideQty =
+    /(?:^|[+,&]\s*|\s)(\d+)\s*(?=[a-zA-ZÀ-ỹ])/i.test(withoutParens) ||
+    /(?:^|[^0-9a-zA-ZÀ-ỹ])(?:x|sl\s*[:\-]?)\s*(\d+)(?![0-9a-zA-ZÀ-ỹ])/i.test(withoutParens);
+  if (hasOutsideQty) {
+    cleaned = withoutParens;
+  }
+
+  const prefixMatches = [...cleaned.matchAll(/(?:^|[+,&]\s*|\s)(\d+)\s*(?=[a-zA-ZÀ-ỹ])/gi)];
+  const suffixMatches = [...cleaned.matchAll(/(?:^|[^0-9a-zA-ZÀ-ỹ])(?:x|sl\s*[:\-]?)\s*(\d+)(?![0-9a-zA-ZÀ-ỹ])/gi)];
+  const allNums = [...prefixMatches, ...suffixMatches]
+    .map((m) => parseInt(m[1], 10))
+    .filter((n) => Number.isFinite(n) && n > 0 && n < 500);
+
+  if (!allNums.length) return 1;
+  const sum = allNums.reduce((acc, n) => acc + n, 0);
   return sum > 0 ? sum : 1;
 }
 
