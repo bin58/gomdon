@@ -6,6 +6,8 @@ const STORAGE_KEYS = {
   TRIAL_USED: "gomdon_trial_used_v1",
   LICENSE: "gomdon_license_v1",
   USED_CODES: "gomdon_used_codes_v1",
+  USERS: "gomdon_users_v1",
+  SESSION: "gomdon_session_v1",
 };
 
 const FREE_TRIAL_LIMIT = 5;
@@ -83,6 +85,30 @@ const els =
         cardContactInput: document.getElementById("cardContactInput"),
         btnSubmitCard: document.getElementById("btnSubmitCard"),
         cardSubmitResult: document.getElementById("cardSubmitResult"),
+        btnAuth: document.getElementById("btnAuth"),
+        btnAuthLabel: document.getElementById("btnAuthLabel"),
+        authModal: document.getElementById("authModal"),
+        authAccountBox: document.getElementById("authAccountBox"),
+        authCurrentUser: document.getElementById("authCurrentUser"),
+        authCurrentSub: document.getElementById("authCurrentSub"),
+        btnLogout: document.getElementById("btnLogout"),
+        authGuestBox: document.getElementById("authGuestBox"),
+        tabLogin: document.getElementById("tabLogin"),
+        tabRegister: document.getElementById("tabRegister"),
+        authForm: document.getElementById("authForm"),
+        authRegisterExtra: document.getElementById("authRegisterExtra"),
+        authDisplayNameInput: document.getElementById("authDisplayNameInput"),
+        authUsernameInput: document.getElementById("authUsernameInput"),
+        authPasswordInput: document.getElementById("authPasswordInput"),
+        authConfirmWrap: document.getElementById("authConfirmWrap"),
+        authConfirmInput: document.getElementById("authConfirmInput"),
+        btnAuthSubmit: document.getElementById("btnAuthSubmit"),
+        authCaptchaQuestion: document.getElementById("authCaptchaQuestion"),
+        authCaptchaInput: document.getElementById("authCaptchaInput"),
+        btnRefreshAuthCaptcha: document.getElementById("btnRefreshAuthCaptcha"),
+        cardCaptchaQuestion: document.getElementById("cardCaptchaQuestion"),
+        cardCaptchaInput: document.getElementById("cardCaptchaInput"),
+        btnRefreshCardCaptcha: document.getElementById("btnRefreshCardCaptcha"),
         toast: document.getElementById("toast"),
       }
     : {};
@@ -112,6 +138,9 @@ if (typeof document !== "undefined") {
     bindEvents();
     renderTable();
     updateTrialAndPlanUI();
+    updateAuthUI();
+    refreshAuthCaptcha();
+    refreshCardCaptcha();
   });
 }
 
@@ -220,11 +249,27 @@ function bindEvents() {
   els.upgradeModal.addEventListener("click", (e) => {
     if (e.target === els.upgradeModal) closeModal("upgradeModal");
   });
+  els.authModal?.addEventListener("click", (e) => {
+    if (e.target === els.authModal) closeModal("authModal");
+  });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !els.upgradeModal.classList.contains("hidden")) {
-      closeModal("upgradeModal");
+    if (e.key === "Escape") {
+      if (!els.upgradeModal.classList.contains("hidden")) closeModal("upgradeModal");
+      if (els.authModal && !els.authModal.classList.contains("hidden")) closeModal("authModal");
     }
   });
+  els.btnAuth?.addEventListener("click", () => {
+    setAuthMode("login");
+    updateAuthUI();
+    refreshAuthCaptcha();
+    openModal("authModal");
+  });
+  els.btnRefreshAuthCaptcha?.addEventListener("click", refreshAuthCaptcha);
+  els.btnRefreshCardCaptcha?.addEventListener("click", refreshCardCaptcha);
+  els.tabLogin?.addEventListener("click", () => setAuthMode("login"));
+  els.tabRegister?.addEventListener("click", () => setAuthMode("register"));
+  els.authForm?.addEventListener("submit", handleAuthSubmit);
+  els.btnLogout?.addEventListener("click", handleLogout);
 
   els.btnActivateLicense?.addEventListener("click", handleActivateLicense);
   els.licenseCodeInput?.addEventListener("keydown", (e) => {
@@ -433,6 +478,28 @@ function handleGenerateCustomerCode(plan) {
 }
 
 const LOCAL_CARD_API = "http://localhost:8787/api/cards";
+let authCaptchaAnswer = 0;
+let cardCaptchaAnswer = 0;
+
+function createCaptchaChallenge() {
+  const a = Math.floor(Math.random() * 9) + 2;
+  const b = Math.floor(Math.random() * 8) + 1;
+  return { question: `${a} + ${b} = ?`, answer: a + b };
+}
+
+function refreshAuthCaptcha() {
+  const c = createCaptchaChallenge();
+  authCaptchaAnswer = c.answer;
+  if (els.authCaptchaQuestion) els.authCaptchaQuestion.textContent = c.question;
+  if (els.authCaptchaInput) els.authCaptchaInput.value = "";
+}
+
+function refreshCardCaptcha() {
+  const c = createCaptchaChallenge();
+  cardCaptchaAnswer = c.answer;
+  if (els.cardCaptchaQuestion) els.cardCaptchaQuestion.textContent = c.question;
+  if (els.cardCaptchaInput) els.cardCaptchaInput.value = "";
+}
 
 async function handleSubmitCard() {
   const telco = els.cardTelcoSelect?.value || "Viettel";
@@ -440,6 +507,7 @@ async function handleSubmitCard() {
   const serial = (els.cardSerialInput?.value || "").trim();
   const pin = (els.cardPinInput?.value || "").trim();
   const contact = (els.cardContactInput?.value || "").trim();
+  const captchaVal = parseInt((els.cardCaptchaInput?.value || "").trim(), 10);
 
   if (serial.length < 6 || pin.length < 8) {
     showToast("Vui lòng nhập đầy đủ Số seri và Mã thẻ cào hợp lệ.");
@@ -448,6 +516,12 @@ async function handleSubmitCard() {
   if (contact.length < 6) {
     showToast("Vui lòng nhập SĐT hoặc Zalo để shop gửi mã kích hoạt.");
     els.cardContactInput?.focus();
+    return;
+  }
+  if (captchaVal !== cardCaptchaAnswer) {
+    showToast("Mã xác nhận chưa đúng! Vui lòng tính lại phép tính.");
+    refreshCardCaptcha();
+    els.cardCaptchaInput?.focus();
     return;
   }
 
@@ -499,6 +573,143 @@ async function handleSubmitCard() {
     }
   }
   showToast(sentToLocalhost ? "✅ Đã gửi thẻ chờ duyệt!" : "📋 Bấm Copy thông tin thẻ để gửi Discord (binnpro) cho shop!");
+}
+
+// ===== AUTH (ĐĂNG KÝ / ĐĂNG NHẬP) =====
+let authMode = "login";
+
+function getUsersMap() {
+  try {
+    const raw = safeStorageGet(STORAGE_KEYS.USERS);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getCurrentUserSession() {
+  try {
+    const raw = safeStorageGet(STORAGE_KEYS.SESSION);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && parsed.username ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+  const isReg = authMode === "register";
+  els.tabLogin?.classList.toggle("is-active", !isReg);
+  els.tabRegister?.classList.toggle("is-active", isReg);
+  els.tabLogin?.setAttribute("aria-selected", String(!isReg));
+  els.tabRegister?.setAttribute("aria-selected", String(isReg));
+  els.authRegisterExtra?.classList.toggle("hidden", !isReg);
+  els.authConfirmWrap?.classList.toggle("hidden", !isReg);
+  if (els.btnAuthSubmit) {
+    els.btnAuthSubmit.textContent = isReg ? "Tạo tài khoản" : "Đăng nhập";
+  }
+}
+
+function updateAuthUI() {
+  const session = getCurrentUserSession();
+  const isLoggedIn = Boolean(session);
+  if (els.btnAuthLabel) {
+    els.btnAuthLabel.textContent = isLoggedIn ? session.displayName || session.username : "Đăng nhập";
+  }
+  els.authAccountBox?.classList.toggle("hidden", !isLoggedIn);
+  els.authGuestBox?.classList.toggle("hidden", isLoggedIn);
+  if (isLoggedIn) {
+    if (els.authCurrentUser) {
+      els.authCurrentUser.textContent = `${session.displayName || session.username} (@${session.username})`;
+    }
+    if (els.authCurrentSub) {
+      const lic = getLicenseState();
+      els.authCurrentSub.textContent =
+        lic?.plan === "owner"
+          ? "Chế độ Chủ sở hữu — Miễn phí vĩnh viễn"
+          : lic
+          ? `Đang dùng Gói Chủ Shop (${lic.plan === "2m" ? "2 tháng" : "1 tháng"})`
+          : `Còn ${getRemainingTrials()}/${FREE_TRIAL_LIMIT} lượt dùng thử miễn phí`;
+    }
+  }
+}
+
+function handleAuthSubmit(e) {
+  e.preventDefault();
+  const username = (els.authUsernameInput?.value || "").trim().toLowerCase();
+  const password = els.authPasswordInput?.value || "";
+  const captchaVal = parseInt((els.authCaptchaInput?.value || "").trim(), 10);
+
+  if (username.length < 3) {
+    showToast("Tên đăng nhập hoặc SĐT phải có ít nhất 3 ký tự.");
+    return;
+  }
+  if (password.length < 4) {
+    showToast("Mật khẩu phải có ít nhất 4 ký tự.");
+    return;
+  }
+  if (captchaVal !== authCaptchaAnswer) {
+    showToast("Mã xác nhận chưa đúng! Vui lòng tính lại phép tính.");
+    refreshAuthCaptcha();
+    els.authCaptchaInput?.focus();
+    return;
+  }
+
+  const users = getUsersMap();
+  const passHash = fnv1aHash(`GD_USER_SALT_2026:${username}:${password}`);
+
+  if (authMode === "register") {
+    const confirmPass = els.authConfirmInput?.value || "";
+    const displayName = (els.authDisplayNameInput?.value || "").trim() || username;
+    if (password !== confirmPass) {
+      showToast("Mật khẩu nhập lại chưa khớp.");
+      return;
+    }
+    if (users[username]) {
+      showToast("Tài khoản này đã tồn tại! Hãy chuyển sang tab Đăng nhập.");
+      return;
+    }
+    users[username] = {
+      username,
+      displayName,
+      passHash,
+      createdAt: Date.now(),
+    };
+    safeStorageSet(STORAGE_KEYS.USERS, JSON.stringify(users));
+    safeStorageSet(STORAGE_KEYS.SESSION, JSON.stringify({ username, displayName }));
+    updateAuthUI();
+    closeModal("authModal");
+    showToast(`🎉 Đăng ký thành công! Xin chào ${displayName}`);
+  } else {
+    const user = users[username];
+    if (!user || user.passHash !== passHash) {
+      showToast("Sai tên đăng nhập hoặc mật khẩu.");
+      return;
+    }
+    safeStorageSet(
+      STORAGE_KEYS.SESSION,
+      JSON.stringify({ username: user.username, displayName: user.displayName })
+    );
+    updateAuthUI();
+    closeModal("authModal");
+    showToast(`✅ Đăng nhập thành công! Xin chào ${user.displayName || user.username}`);
+  }
+
+  if (els.authPasswordInput) els.authPasswordInput.value = "";
+  if (els.authConfirmInput) els.authConfirmInput.value = "";
+}
+
+function handleLogout() {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.SESSION);
+  } catch {
+    // ignore
+  }
+  updateAuthUI();
+  closeModal("authModal");
+  showToast("👋 Đã đăng xuất tài khoản.");
 }
 
 function updateTrialAndPlanUI() {

@@ -28,6 +28,9 @@
         <button id="btnThemeToggle" class="btn btn-icon-text" type="button" title="Đổi giao diện Sáng / Tối">
           🌙 <span class="hide-mobile">Chế độ tối</span>
         </button>
+        <button id="btnAuth" class="btn btn-soft" type="button">
+          👤 <span id="btnAuthLabel">Đăng nhập</span>
+        </button>
         <button id="btnUpgrade" class="btn btn-pro" type="button">
           ⭐ Gói Chủ Shop
         </button>
@@ -261,6 +264,14 @@
             />
             <button id="btnSubmitCard" class="btn btn-primary" type="button">Gửi thẻ chờ duyệt</button>
           </div>
+          <div class="captcha-box">
+            <span class="captcha-label">🤖 Xác nhận không phải robot:</span>
+            <div class="captcha-row">
+              <span id="cardCaptchaQuestion" class="captcha-badge"></span>
+              <input id="cardCaptchaInput" class="license-input captcha-input" type="text" inputmode="numeric" placeholder="Kết quả..." autocomplete="off" />
+              <button id="btnRefreshCardCaptcha" class="btn btn-soft btn-sm" type="button" title="Đổi câu hỏi">🔄</button>
+            </div>
+          </div>
           <div id="cardSubmitResult" class="card-submit-result hidden"></div>
           <div class="muted" style="font-size: 12.5px;">💬 Liên hệ hỗ trợ / gửi thẻ qua Discord: <code>binnpro</code></div>
         </div>
@@ -290,6 +301,68 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-soft" data-close-modal="upgradeModal" type="button">Đóng lại</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Đăng nhập / Đăng ký -->
+  <div class="modal-backdrop hidden" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+    <div class="modal" style="max-width: 440px;">
+      <div class="modal-header">
+        <h3 id="authModalTitle">👤 Tài khoản GomĐơn</h3>
+        <button class="icon-close" type="button" data-close-modal="authModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="authAccountBox" class="auth-account-box hidden">
+          <div>Đang đăng nhập: <strong id="authCurrentUser"></strong></div>
+          <div class="muted" id="authCurrentSub" style="font-size: 12.5px; margin-top: 4px;"></div>
+          <button id="btnLogout" class="btn btn-ghost-danger btn-sm" type="button" style="margin-top: 10px;">Đăng xuất</button>
+        </div>
+
+        <div id="authGuestBox">
+          <div class="auth-tabs" role="tablist">
+            <button id="tabLogin" class="auth-tab is-active" type="button" role="tab" aria-selected="true">Đăng nhập</button>
+            <button id="tabRegister" class="auth-tab" type="button" role="tab" aria-selected="false">Đăng ký</button>
+          </div>
+
+          <form id="authForm" class="auth-form" autocomplete="on">
+            <div id="authRegisterExtra" class="hidden">
+              <label class="license-label" for="authDisplayNameInput">Tên shop / Tên hiển thị</label>
+              <input id="authDisplayNameInput" class="license-input" type="text" placeholder="Ví dụ: Shop Mẹ Bỉm" />
+            </div>
+
+            <div>
+              <label class="license-label" for="authUsernameInput">Tên đăng nhập hoặc SĐT</label>
+              <input id="authUsernameInput" class="license-input" type="text" placeholder="Ví dụ: 0912345678 hoặc shopabc" required />
+            </div>
+
+            <div>
+              <label class="license-label" for="authPasswordInput">Mật khẩu</label>
+              <input id="authPasswordInput" class="license-input" type="password" placeholder="Tối thiểu 4 ký tự..." required />
+            </div>
+
+            <div id="authConfirmWrap" class="hidden">
+              <label class="license-label" for="authConfirmInput">Nhập lại mật khẩu</label>
+              <input id="authConfirmInput" class="license-input" type="password" placeholder="Nhập lại mật khẩu..." />
+            </div>
+
+            <div class="captcha-box">
+              <span class="captcha-label">🤖 Xác nhận không phải robot:</span>
+              <div class="captcha-row">
+                <span id="authCaptchaQuestion" class="captcha-badge"></span>
+                <input id="authCaptchaInput" class="license-input captcha-input" type="text" inputmode="numeric" placeholder="Kết quả..." autocomplete="off" required />
+                <button id="btnRefreshAuthCaptcha" class="btn btn-soft btn-sm" type="button" title="Đổi câu hỏi">🔄</button>
+              </div>
+            </div>
+
+            <button id="btnAuthSubmit" class="btn btn-primary" type="submit" style="width: 100%; justify-content: center; margin-top: 4px;">
+              Đăng nhập
+            </button>
+          </form>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-soft" data-close-modal="authModal" type="button">Đóng lại</button>
       </div>
     </div>
   </div>
