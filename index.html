@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GomĐơn — Biến tin nhắn Zalo/Facebook thành bảng Excel dễ dàng</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- SheetJS để xuất file .xlsx chuẩn tiếng Việt -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <!-- Header tối giản -->
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">📦</div>
+        <div>
+          <div class="brand-name">GomĐơn</div>
+          <div class="brand-sub">Gom đơn Zalo &amp; Facebook ra Excel chỉ 1 bấm</div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="btnThemeToggle" class="btn btn-icon-text" type="button" title="Đổi giao diện Sáng / Tối">
+          🌙 <span class="hide-mobile">Chế độ tối</span>
+        </button>
+        <button id="btnUpgrade" class="btn btn-pro" type="button">
+          ⭐ Gói Chủ Shop
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container main-layout">
+    <!-- Thanh chỉ dẫn 3 bước trực quan -->
+    <nav class="stepper" aria-label="Quy trình 3 bước">
+      <div class="step-item active" id="step1Badge">
+        <span class="step-num">1</span>
+        <span>Dán tin nhắn khách đặt</span>
+      </div>
+      <div class="step-arrow" aria-hidden="true">→</div>
+      <div class="step-item" id="step2Badge">
+        <span class="step-num">2</span>
+        <span>Kiểm tra lại đơn</span>
+      </div>
+      <div class="step-arrow" aria-hidden="true">→</div>
+      <div class="step-item" id="step3Badge">
+        <span class="step-num">3</span>
+        <span>Tải Excel / Gửi Ship</span>
+      </div>
+    </nav>
+
+    <!-- BƯỚC 1: NHẬP TIN NHẮN -->
+    <section class="card step-card">
+      <div class="step-header">
+        <div class="step-title-wrap">
+          <span class="step-pill">Bước 1</span>
+          <h2>Dán tin nhắn đặt hàng của khách vào đây</h2>
+        </div>
+
+        <div class="quick-tools">
+          <button id="btnPasteClipboard" class="btn btn-soft-green" type="button">📋 Dán tin nhắn</button>
+          <button id="btnSampleFood" class="btn btn-chip" type="button">🍜 Thử mẫu quán ăn</button>
+          <button id="btnSampleShop" class="btn btn-chip" type="button">👗 Thử mẫu shop áo quần</button>
+          <button id="btnClearInput" class="btn btn-chip btn-chip-danger" type="button">Xóa</button>
+        </div>
+      </div>
+
+      <textarea
+        id="rawInput"
+        class="message-textarea"
+        rows="6"
+        placeholder="Copy tin nhắn trên Zalo hoặc Messenger rồi bấm nút '📋 Dán tin nhắn' ở trên...&#10;&#10;Mẹo: Dán nhiều đơn cùng lúc, mỗi đơn cách nhau 1 dòng trống là máy tự tách hết nhé!"
+      ></textarea>
+
+      <div class="step1-footer">
+        <div class="friendly-tip">
+          💡 Miễn phí 100% — Dán bao nhiêu đơn cùng lúc cũng được, xử lý ngay trong 1 giây
+        </div>
+
+        <button id="btnParse" class="btn btn-primary btn-xl" type="button">
+          <span class="btn-label">✨ Tách thành danh sách đơn</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- BƯỚC 2: KIỂM TRA ĐƠN HÀNG -->
+    <section class="card step-card" id="resultSection">
+      <div class="step-header">
+        <div class="step-title-wrap">
+          <span class="step-pill">Bước 2</span>
+          <div>
+            <h2>Kiểm tra &amp; chỉnh sửa đơn hàng</h2>
+            <p class="muted" id="tableStatusText">Bấm trực tiếp vào ô bất kỳ để sửa nếu khách nhắn thiếu.</p>
+          </div>
+        </div>
+
+        <div class="table-mini-actions">
+          <button id="btnCopyResult" class="btn btn-soft-green" type="button" disabled>📄 Copy kết quả</button>
+          <button id="btnAddRow" class="btn btn-ghost" type="button">+ Thêm 1 đơn</button>
+          <button id="btnClearOrders" class="btn btn-ghost-danger hidden" type="button">🗑️ Xóa hết bảng</button>
+        </div>
+      </div>
+
+      <!-- Thanh tổng kết gọn, dễ đọc cho chủ shop -->
+      <div class="summary-bar" id="summaryBar">
+        <div class="summary-item">
+          <span class="summary-label">Số đơn</span>
+          <strong class="summary-val" id="statOrders">0 đơn</strong>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Tổng tiền hàng</span>
+          <strong class="summary-val text-emerald" id="statRevenue">0 đ</strong>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Đủ thông tin</span>
+          <strong class="summary-val text-blue" id="statComplete">0</strong>
+        </div>
+        <div class="summary-divider"></div>
+        <div class="summary-item">
+          <span class="summary-label">Thiếu SĐT / Địa chỉ</span>
+          <strong class="summary-val text-amber" id="statWarning">0</strong>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table class="orders-table" id="ordersTable">
+          <thead>
+            <tr>
+              <th class="col-stt">#</th>
+              <th class="col-name">Khách hàng</th>
+              <th class="col-phone">Số điện thoại</th>
+              <th class="col-address">Địa chỉ giao</th>
+              <th class="col-items">Món / Sản phẩm</th>
+              <th class="col-qty">SL</th>
+              <th class="col-total">Tiền thu (đ)</th>
+              <th class="col-note">Ghi chú</th>
+              <th class="col-status">Kiểm tra</th>
+              <th class="col-action"></th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody">
+            <tr class="empty-row">
+              <td colspan="10">
+                <div class="empty-state">
+                  <div class="empty-icon">📋</div>
+                  <p>Chưa có đơn hàng nào.</p>
+                  <p class="muted">Hãy bấm <strong>🍜 Thử mẫu quán ăn</strong> ở trên rồi bấm nút màu xanh để xem máy tách đơn tự động!</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- BƯỚC 3: XUẤT FILE / GỬI SHIPPER -->
+    <section class="card step-card export-card" id="exportSection">
+      <div class="export-card-inner">
+        <div class="step-title-wrap">
+          <span class="step-pill">Bước 3</span>
+          <div>
+            <h2>Lưu file Excel hoặc gửi cho Shipper</h2>
+            <p class="muted">Xuất xong có thể gửi thẳng qua Zalo cho nhân viên / shipper hoặc lưu sổ kế toán.</p>
+          </div>
+        </div>
+
+        <div class="export-big-buttons">
+          <button id="btnExportExcel" class="btn btn-primary btn-lg" type="button" disabled>
+            📊 Tải file Excel (.xlsx)
+          </button>
+          <button id="btnCopyShipper" class="btn btn-shipper btn-lg" type="button" disabled>
+            🛵 Copy gửi Shipper (Zalo)
+          </button>
+          <button id="btnCopySheet" class="btn btn-secondary btn-lg" type="button" disabled>
+            📋 Copy dán Google Sheets
+          </button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span>🔒 An toàn: Tin nhắn của shop chỉ xử lý trên máy bạn, không lưu lại trên mạng.</span>
+      <span>GomĐơn — Công cụ gom đơn nhanh cho chủ shop Việt</span>
+    </div>
+  </footer>
+
+  <!-- Modal Gói Chủ Shop (Mẫu bán hàng) -->
+  <div class="modal-backdrop hidden" id="upgradeModal" role="dialog" aria-modal="true" aria-labelledby="upgradeModalTitle">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="upgradeModalTitle">⭐ Gói Chủ Shop Pro — 79.000đ / tháng</h3>
+        <button class="icon-close" type="button" data-close-modal="upgradeModal" aria-label="Đóng">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="pricing-box">
+          <ul class="pricing-list">
+            <li>✅ Tách không giới hạn đơn hàng mỗi ngày bằng AI siêu chuẩn</li>
+            <li>✅ Tự động ghép nhiều tin nhắn rời rạc của cùng 1 khách</li>
+            <li>✅ Xuất file Excel đúng mẫu GHTK / GHN / Viettel Post</li>
+            <li>✅ Hỗ trợ trực tiếp qua Zalo 5 phút</li>
+          </ul>
+        </div>
+        <div class="qr-placeholder">
+          <div class="qr-box">MÃ VIETQR<br/>CỦA SHOP</div>
+          <div>
+            <strong>Chuyển khoản kích hoạt ngay:</strong>
+            <p class="muted" style="margin-top: 6px;">
+              Nội dung chuyển khoản: <code>GOMDON + SĐT của bạn</code>. Sau đó nhắn Zalo để nhận mã kích hoạt dùng ngay!
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" data-close-modal="upgradeModal" type="button">Đóng lại</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast thông báo -->
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+</body>
+</html>
