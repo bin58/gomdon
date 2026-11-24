@@ -470,4 +470,40 @@ describe("R4 preserved behaviors & sample datasets", () => {
     assert.equal(csvRows[0]["Món / Sản phẩm"], "'-2 áo");
     assert.equal(csvRows[0]["Ghi chú"], "'@note");
   });
+
+  it("handles SĐT phụ, delivery dates, 'trước khi giao', unpriced 'ship', and item-attribute parens", () => {
+    const secPhoneOrders = parseLocallyVietnamese(
+      "Chị P 0912345678 1 áo 150k 12 Lê Lợi Q1\nSĐT phụ 0987654321"
+    );
+    assert.equal(secPhoneOrders.length, 1);
+    assert.equal(secPhoneOrders[0].phone, "0912345678");
+    assert.match(secPhoneOrders[0].note, /0987654321/);
+    assert.equal(secPhoneOrders[0].items, "1 áo");
+
+    const [dateOrder] = parseLocallyVietnamese(
+      "Anh K 0912345678 1 áo 200k 20 Lý Tự Trọng Q1 giao ngày 5 tháng 12"
+    );
+    assert.equal(dateOrder.items, "1 áo");
+    assert.equal(dateOrder.qty, 1);
+    assert.match(dateOrder.note, /giao ngày 5 tháng 12/i);
+
+    const callOrders = parseLocallyVietnamese(
+      "Chị M 0912345678 1 váy 250k 25 Hàng Bài\nGọi 0912345678 trước khi giao"
+    );
+    assert.equal(callOrders.length, 1);
+    assert.equal(callOrders[0].items, "1 váy");
+    assert.match(callOrders[0].note, /trước khi giao/i);
+
+    const [shipOrder] = parseLocallyVietnamese(
+      "Anh T 0912345678 1 áo 180k ship nhanh 12 Lê Lợi Q1"
+    );
+    assert.equal(shipOrder.items, "1 áo");
+    assert.match(shipOrder.note, /ship nhanh/i);
+
+    const [sizeOrder] = parseLocallyVietnamese(
+      "Chị L 0912345678 1 áo (size M) 220k 12 Lê Lợi Q1"
+    );
+    assert.equal(sizeOrder.items, "1 áo (size M)");
+    assert.equal(sizeOrder.note, "");
+  });
 });

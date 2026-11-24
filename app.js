@@ -1,9 +1,15 @@
-// GomĐơn — Logic tách đơn hàng từ tin nhắn tiếng Việt & xuất Excel (Miễn phí 100%, không cần API Key)
+// GomĐơn — Logic tách đơn hàng từ tin nhắn tiếng Việt & xuất Excel
 
 const STORAGE_KEYS = {
   ORDERS: "gomdon_orders_v1",
   THEME: "gomdon_theme_v1",
+  TRIAL_USED: "gomdon_trial_used_v1",
+  LICENSE: "gomdon_license_v1",
 };
+
+const FREE_TRIAL_LIMIT = 5;
+const OWNER_CODE_HASH = "7952b3";
+const LICENSE_SALT = "GD_PLAN_2026_V1";
 
 const SAMPLES = {
   food: `Chị Lan 0912 345 678 giao 2 trà sữa trân châu đường đen + 1 bánh tráng trộn tới 45 Nguyễn Trãi, Thanh Xuân, HN. Tổng 95k ship trước 5h nhé
@@ -61,6 +67,14 @@ const els =
         step2Badge: document.getElementById("step2Badge"),
         step3Badge: document.getElementById("step3Badge"),
         upgradeModal: document.getElementById("upgradeModal"),
+        trialStatusTip: document.getElementById("trialStatusTip"),
+        licenseStatusBox: document.getElementById("licenseStatusBox"),
+        licenseCodeInput: document.getElementById("licenseCodeInput"),
+        btnActivateLicense: document.getElementById("btnActivateLicense"),
+        ownerToolsBox: document.getElementById("ownerToolsBox"),
+        btnGen1M: document.getElementById("btnGen1M"),
+        btnGen2M: document.getElementById("btnGen2M"),
+        generatedCodeOutput: document.getElementById("generatedCodeOutput"),
         toast: document.getElementById("toast"),
       }
     : {};
@@ -89,6 +103,7 @@ if (typeof document !== "undefined") {
     loadSavedState();
     bindEvents();
     renderTable();
+    updateTrialAndPlanUI();
   });
 }
 
@@ -202,6 +217,20 @@ function bindEvents() {
       closeModal("upgradeModal");
     }
   });
+
+  els.btnActivateLicense?.addEventListener("click", handleActivateLicense);
+  els.licenseCodeInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleActivateLicense();
+    }
+  });
+  els.btnGen1M?.addEventListener("click", () => handleGenerateCustomerCode("1m"));
+  els.btnGen2M?.addEventListener("click", () => handleGenerateCustomerCode("2m"));
+  els.generatedCodeOutput?.addEventListener("click", () => {
+    const code = els.generatedCodeOutput.dataset.code || "";
+    if (code) copyText(code, `Đã copy mã: ${code}`);
+  });
 }
 
 async function handlePasteClipboard() {
@@ -246,8 +275,178 @@ function createEmptyOrder() {
   };
 }
 
+// ===== TRIAL & LICENSE MANAGEMENT =====
+function fnv1aHash(str) {
+  let x = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    x ^= str.charCodeAt(i);
+    x = Math.imul(x, 16777619);
+  }
+  return (x >>> 0).toString(16);
+}
+
+function getLicenseState() {
+  try {
+    const raw = safeStorageGet(STORAGE_KEYS.LICENSE);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== "object") return null;
+    if (data.plan === "owner") return data;
+    if ((data.plan === "1m" || data.plan === "2m") && typeof data.expiresAt === "number") {
+      if (Date.now() < data.expiresAt) return data;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getTrialUsed() {
+  const n = parseInt(safeStorageGet(STORAGE_KEYS.TRIAL_USED) || "0", 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function getRemainingTrials() {
+  return Math.max(0, FREE_TRIAL_LIMIT - getTrialUsed());
+}
+
+function hasActiveAccess() {
+  return Boolean(getLicenseState()) || getRemainingTrials() > 0;
+}
+
+function consumeTrialUse() {
+  if (getLicenseState()) return;
+  const next = Math.min(FREE_TRIAL_LIMIT, getTrialUsed() + 1);
+  safeStorageSet(STORAGE_KEYS.TRIAL_USED, String(next));
+  updateTrialAndPlanUI();
+}
+
+function getCodeChecksum(prefix, token) {
+  return fnv1aHash(`${LICENSE_SALT}:${prefix}-${token}`).slice(0, 2).toUpperCase();
+}
+
+function activateLicenseCode(rawCode) {
+  const code = String(rawCode || "").trim().toUpperCase();
+  if (!code) return { ok: false, message: "Vui lòng nhập mã kích hoạt." };
+
+  if (fnv1aHash(`GD_OWNER_SALT_2026:${code}`) === OWNER_CODE_HASH) {
+    const lic = { plan: "owner", expiresAt: null, activatedAt: Date.now() };
+    safeStorageSet(STORAGE_KEYS.LICENSE, JSON.stringify(lic));
+    updateTrialAndPlanUI();
+    return { ok: true, plan: "owner", message: "👑 Đã bật chế độ Chủ sở hữu — miễn phí không giới hạn!" };
+  }
+
+  const m = code.match(/^(GD1M|GD2M)-([A-Z0-9]{4})-([A-Z0-9]{2})$/);
+  if (!m) {
+    return { ok: false, message: "Mã không hợp lệ. Vui lòng kiểm tra lại (VD: GD1M-XXXX-XX)." };
+  }
+
+  const [, prefix, token, cs] = m;
+  if (getCodeChecksum(prefix, token) !== cs) {
+    return { ok: false, message: "Mã kích hoạt không đúng. Vui lòng liên hệ Zalo shop." };
+  }
+
+  const days = prefix === "GD2M" ? 60 : 30;
+  const plan = prefix === "GD2M" ? "2m" : "1m";
+  const expiresAt = Date.now() + days * 86400000;
+  safeStorageSet(STORAGE_KEYS.LICENSE, JSON.stringify({ plan, expiresAt, code, activatedAt: Date.now() }));
+  updateTrialAndPlanUI();
+  return {
+    ok: true,
+    plan,
+    message: `⭐ Kích hoạt thành công gói ${prefix === "GD2M" ? "2 tháng (50k)" : "1 tháng (30k)"}!`,
+  };
+}
+
+function handleActivateLicense() {
+  const res = activateLicenseCode(els.licenseCodeInput?.value);
+  showToast(res.message);
+  if (res.ok && els.licenseCodeInput) {
+    els.licenseCodeInput.value = "";
+  }
+}
+
+function generateCustomerCode(plan) {
+  const prefix = plan === "2m" ? "GD2M" : "GD1M";
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let token = "";
+  for (let i = 0; i < 4; i++) {
+    token += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return `${prefix}-${token}-${getCodeChecksum(prefix, token)}`;
+}
+
+function handleGenerateCustomerCode(plan) {
+  if (getLicenseState()?.plan !== "owner") return;
+  const code = generateCustomerCode(plan);
+  if (els.generatedCodeOutput) {
+    els.generatedCodeOutput.dataset.code = code;
+    els.generatedCodeOutput.textContent = `${code}  (Bấm vào để copy)`;
+    els.generatedCodeOutput.classList.remove("hidden");
+  }
+  copyText(code, `Đã tạo & copy mã ${plan === "2m" ? "2 tháng" : "1 tháng"}: ${code}`);
+}
+
+function updateTrialAndPlanUI() {
+  const lic = getLicenseState();
+  const remaining = getRemainingTrials();
+
+  if (els.trialStatusTip) {
+    if (lic?.plan === "owner") {
+      els.trialStatusTip.innerHTML =
+        "👑 <strong>Chế độ Chủ sở hữu</strong> — Miễn phí không giới hạn lượt tách đơn";
+    } else if (lic) {
+      const daysLeft = Math.max(1, Math.ceil((lic.expiresAt - Date.now()) / 86400000));
+      els.trialStatusTip.innerHTML = `⭐ <strong>Gói Chủ Shop đang bật</strong> — Còn ${daysLeft} ngày sử dụng không giới hạn`;
+    } else if (remaining > 0) {
+      els.trialStatusTip.innerHTML = `🎁 Dùng thử miễn phí: còn <strong>${remaining}/${FREE_TRIAL_LIMIT}</strong> lần tách đơn — Sau đó 30k/tháng hoặc 50k/2 tháng`;
+    } else {
+      els.trialStatusTip.innerHTML =
+        '🔒 Đã hết 5 lần miễn phí — <a href="#" id="linkOpenUpgrade" style="color:inherit;font-weight:700;text-decoration:underline;">Chọn gói 30k/tháng hoặc 50k/2 tháng</a>';
+      document.getElementById("linkOpenUpgrade")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        openModal("upgradeModal");
+      });
+    }
+  }
+
+  if (els.btnUpgrade) {
+    if (lic?.plan === "owner") {
+      els.btnUpgrade.textContent = "👑 Chủ sở hữu";
+    } else if (lic) {
+      const daysLeft = Math.max(1, Math.ceil((lic.expiresAt - Date.now()) / 86400000));
+      els.btnUpgrade.textContent = `⭐ Pro (${daysLeft} ngày)`;
+    } else {
+      els.btnUpgrade.textContent = "⭐ Gói Chủ Shop";
+    }
+  }
+
+  if (els.licenseStatusBox) {
+    if (lic?.plan === "owner") {
+      els.licenseStatusBox.textContent = "👑 Trạng thái: Chủ sở hữu (Miễn phí vĩnh viễn)";
+      els.licenseStatusBox.classList.remove("hidden");
+    } else if (lic) {
+      const daysLeft = Math.max(1, Math.ceil((lic.expiresAt - Date.now()) / 86400000));
+      els.licenseStatusBox.textContent = `⭐ Trạng thái: Đang dùng gói ${lic.plan === "2m" ? "2 tháng" : "1 tháng"} (còn ${daysLeft} ngày)`;
+      els.licenseStatusBox.classList.remove("hidden");
+    } else {
+      els.licenseStatusBox.classList.add("hidden");
+    }
+  }
+
+  if (els.ownerToolsBox) {
+    els.ownerToolsBox.classList.toggle("hidden", lic?.plan !== "owner");
+  }
+}
+
 // ===== MAIN PARSE HANDLER =====
 function handleParse() {
+  if (!hasActiveAccess()) {
+    showToast("Bạn đã dùng hết 5 lần miễn phí. Chọn gói 30k/tháng hoặc 50k/2 tháng để tiếp tục nhé!");
+    openModal("upgradeModal");
+    return;
+  }
+
   const rawText = els.rawInput.value.trim();
   if (!rawText) {
     showToast("Vui lòng dán ít nhất 1 tin nhắn đặt hàng trước!");
@@ -263,6 +462,7 @@ function handleParse() {
 
   orders = parsed;
   saveOrders();
+  consumeTrialUse();
   renderTable();
   showToast(`✅ Đã tách thành công ${orders.length} đơn hàng!`);
   els.resultSection?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -286,7 +486,7 @@ function parseLocallyVietnamese(rawText) {
   if (!normalized) return [];
 
   const secondaryLabelRe =
-    /^(?:sđt|sdt|đt|dt|điện thoại|phone|địa chỉ|đc|đ\/c|món|sản phẩm|sp|đơn hàng|đặt món|order|ghi chú|note|lưu ý)\s*[:\-]/i;
+    /^(?:(?:sđt|sdt|đt|dt|số|điện thoại|phone)\s*(?:phụ|thứ\s*2|2|khác)(?![0-9a-zA-ZÀ-ỹ])|(?:sđt|sdt|đt|dt|điện thoại|phone|địa chỉ|đc|đ\/c|món|sản phẩm|sp|đơn hàng|đặt món|order|ghi chú|note|lưu ý)\s*[:\-])/i;
   const callInstructionLineRe = /^(?:gọi|liên hệ|lh)(?![0-9a-zA-ZÀ-ỹ])/i;
   const phoneStripForLineCheckRe = new RegExp(
     `(?:^|[^0-9a-zA-ZÀ-ỹ])(?:(?:sđt|sdt|đt|dt|điện thoại|phone)\\s*[:\\-]?\\s*)?${PHONE_CORE_PATTERN}(?![0-9])`,
@@ -457,9 +657,19 @@ function parseSingleBlockLocal(text) {
   // 1. Trích xuất SĐT Việt Nam hợp lệ (không cắt nhầm từ chuỗi số dài như mã vận đơn)
   const phone = extractPhone(working);
   if (phone) {
-    // Xử lý cụm gọi điện kèm SĐT lặp lại hoặc SĐT phụ (vd: "gọi 0912345678 khi tới") để không sót chữ rời vào Món
+    // Tách SĐT phụ (vd: "SĐT phụ 0987654321", "Số thứ 2: 0987...") vào ghi chú trước khi xóa SĐT chính
+    const secondaryPhoneRe = new RegExp(
+      `(^|[^0-9a-zA-ZÀ-ỹ])((?:sđt|sdt|đt|dt|số|điện thoại|phone)\\s*(?:phụ|thứ\\s*2|2|khác)\\s*[:\\-]?\\s*${PHONE_CORE_PATTERN})(?![0-9])`,
+      "gi"
+    );
+    working = working.replace(secondaryPhoneRe, (_match, prefix, secPhrase) => {
+      addNote(secPhrase);
+      return `${prefix} | `;
+    });
+
+    // Xử lý cụm gọi điện kèm SĐT lặp lại hoặc SĐT phụ (vd: "gọi 0912345678 khi tới" / "trước khi giao")
     const callPhraseRe = new RegExp(
-      `(^|[^0-9a-zA-ZÀ-ỹ])((?:gọi|liên hệ|lh)\\s*(?:lại\\s*)?(?:sđt|sdt|số)?\\s*[:\\-]?\\s*(?:${PHONE_CORE_PATTERN})(?:\\s*(?:khi|lúc)\\s*(?:tới(?:\\s*nơi)?|đến(?:\\s*nơi)?|giao(?:\\s*hàng)?))?(?:\\s*(?:nhé|nha|ạ|nhá))?)(?![0-9a-zA-ZÀ-ỹ])`,
+      `(^|[^0-9a-zA-ZÀ-ỹ])((?:gọi|liên hệ|lh)\\s*(?:lại\\s*)?(?:sđt|sdt|số)?\\s*[:\\-]?\\s*(?:${PHONE_CORE_PATTERN})(?:\\s*(?:(?:trước|trc)\\s*(?:khi|lúc)|khi|lúc)\\s*(?:tới(?:\\s*nơi)?|đến(?:\\s*nơi)?|giao(?:\\s*hàng)?))?(?:\\s*(?:nhé|nha|ạ|nhá))?)(?![0-9a-zA-ZÀ-ỹ])`,
       "gi"
     );
     working = working.replace(callPhraseRe, (match, prefix, phrase) => {
@@ -472,7 +682,7 @@ function parseSingleBlockLocal(text) {
             .replace(/^(?:gọi|liên hệ|lh)\s*(?:lại\s*)?(?:sđt|sdt|số)?\s*[:\-]?\s*/i, "")
             .replace(/\s+/g, " ")
         );
-        if (/^(?:khi|lúc)\s*(?:tới|đến|giao)/i.test(strippedPhonePhrase)) {
+        if (/^(?:(?:trước|trc)\s*(?:khi|lúc)|khi|lúc)\s*(?:tới|đến|giao)/i.test(strippedPhonePhrase)) {
           addNote(`gọi ${strippedPhonePhrase}`);
         }
       } else {
@@ -555,13 +765,19 @@ function parseSingleBlockLocal(text) {
   }
 
   // 5. Trích xuất Ghi chú phổ biến & viết tắt tiếng Việt (dùng ranh giới Unicode thay cho \b, không dùng lookbehind)
-  working = working.replace(/\(([^)]+)\)/g, (_match, inner) => {
+  const itemAttrParenRe =
+    /^(?:(?:size|sz|cỡ|màu|loại|vị|hương|mùi|bản|phiên\s*bản|combo|set|sl|số\s*lượng)\b|(?:xs|s|m|l|xl|xxl|xxxl|2xl|3xl|freesize|free\s*size|\d{2}(?:\s*-\s*\d{2})?(?:\s*kg)?)$|(?:đỏ|đen|trắng|xanh|vàng|hồng|tím|nâu|xám|ghi|be|kem|cam)(?:\s*[\/,&\-]\s*(?:đỏ|đen|trắng|xanh|vàng|hồng|tím|nâu|xám|ghi|be|kem|cam))*$)/i;
+  working = working.replace(/\(([^)]+)\)/g, (match, inner) => {
+    const trimmedInner = cleanSegment(inner);
+    if (trimmedInner && itemAttrParenRe.test(trimmedInner)) {
+      return `(${trimmedInner})`;
+    }
     addNote(inner);
     return " | ";
   });
 
   working = working.replace(
-    /(^|[^0-9a-zA-ZÀ-ỹ])(ship trước [^,.\n|]+|giao trước [^,.\n|]+|giao giờ hành chính|giao sáng|giao chiều|giao tối|ship gấp|gọi trc[^,.\n|]*|gọi trước[^,.\n|]*|đã chuyển khoản|đã ck|ck rồi|freeship|fs|ko hành|không hành|k hành|ko đá|k đá|ít đá|ít đường|ít ngọt|gói kín[^,.\n|]*)(?![0-9a-zA-ZÀ-ỹ])/gi,
+    /(^|[^0-9a-zA-ZÀ-ỹ])((?:giao|ship|nhận)\s+(?:vào\s+)?(?:ngày\s+\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{2,4})?)|hôm\s+nay|ngày\s+mai|cuối\s+tuần|thứ\s+[2-7]|chủ\s+nhật|lúc\s+\d{1,2}(?:h\d{0,2}|:\d{2}|\s*giờ(?:\s*\d{1,2})?))(?:\s*(?:sáng|chiều|tối|trưa|nhé|nha|ạ|nhá))?|ngày\s+\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\s+tháng\s+\d{1,2}(?:\s+năm\s+\d{2,4})?)|ship trước [^,.\n|]+|giao trước [^,.\n|]+|giao giờ hành chính|giao sáng|giao chiều|giao tối|ship\s+(?:nhanh|hỏa tốc|hoả tốc|gấp|thường|tiết kiệm|cod|liền|ngay)|giao\s+(?:nhanh|hỏa tốc|hoả tốc|gấp|liền|ngay)|gọi trc[^,.\n|]*|gọi trước[^,.\n|]*|đã chuyển khoản|đã ck|ck rồi|freeship|fs|ko hành|không hành|k hành|ko đá|k đá|ít đá|ít đường|ít ngọt|gói kín[^,.\n|]*)(?![0-9a-zA-ZÀ-ỹ])/gi,
     (_match, prefix, noteText) => {
       addNote(noteText);
       return `${prefix} | `;
@@ -837,11 +1053,16 @@ function cleanItem(s) {
 
 function estimateQuantity(itemsStr) {
   if (!itemsStr) return 1;
-  // Loại bỏ số đo/size (vd: "size 38", "sz 40", "cỡ 36") để không cộng nhầm vào số lượng
-  const withoutSizes = itemsStr.replace(
-    /(^|[^0-9a-zA-ZÀ-ỹ])(?:size|sz|cỡ)\s*[:\-]?\s*\d+(?:[.,]\d+)?(?![0-9a-zA-ZÀ-ỹ])/gi,
-    "$1 "
-  );
+  // Loại bỏ số đo/size (vd: "size 38", "sz 40", "cỡ 36") và ngày/giờ để không cộng nhầm vào số lượng
+  const withoutSizes = itemsStr
+    .replace(
+      /(^|[^0-9a-zA-ZÀ-ỹ])(?:size|sz|cỡ)\s*[:\-]?\s*\d+(?:[.,]\d+)?(?![0-9a-zA-ZÀ-ỹ])/gi,
+      "$1 "
+    )
+    .replace(
+      /(^|[^0-9a-zA-ZÀ-ỹ])(?:ngày\s+\d{1,2}(?:\s+tháng\s+\d{1,2})?|\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?|\d{1,2}h\d{0,2})(?![0-9a-zA-ZÀ-ỹ])/gi,
+      "$1 "
+    );
   // Cho phép viết liền đơn vị như "2kg nho", "3hộp bánh" hoặc có khoảng trắng "2 áo"
   const matches = [...withoutSizes.matchAll(/(?:^|[+,&]\s*|\s)(\d+)\s*(?=[a-zA-ZÀ-ỹ])/gi)];
   if (!matches.length) return 1;
@@ -863,7 +1084,9 @@ function getOrderStatusHtml(order) {
         missingPhone && missingAddress
           ? "Thiếu SĐT & ĐC"
           : missingPhone
-          ? "SĐT chưa đủ"
+          ? !order.phone
+            ? "Thiếu SĐT"
+            : "SĐT chưa đủ"
           : "Thiếu địa chỉ"
       }</span>`
     : `<span class="status-badge status-ok">✅ Đủ thông tin</span>`;

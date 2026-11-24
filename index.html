@@ -78,8 +78,8 @@
       ></textarea>
 
       <div class="step1-footer">
-        <div class="friendly-tip">
-          💡 Miễn phí 100% — Dán bao nhiêu đơn cùng lúc cũng được, xử lý ngay trong 1 giây
+        <div class="friendly-tip" id="trialStatusTip">
+          🎁 Dùng thử miễn phí: còn <strong>5/5</strong> lần tách đơn — không giới hạn số đơn mỗi lần
         </div>
 
         <button id="btnParse" class="btn btn-primary btn-xl" type="button">
@@ -95,7 +95,7 @@
           <span class="step-pill">Bước 2</span>
           <div>
             <h2>Kiểm tra &amp; chỉnh sửa đơn hàng</h2>
-            <p class="muted" id="tableStatusText">Bấm trực tiếp vào ô bất kỳ để sửa nếu khách nhắn thiếu.</p>
+            <p class="muted" id="tableStatusText">Bấm trực tiếp vào ô để sửa (số tiền sau món như <code>2 trà sữa 30k</code> được tính là tổng tiền món đó).</p>
           </div>
         </div>
 
@@ -193,34 +193,65 @@
     </div>
   </footer>
 
-  <!-- Modal Gói Chủ Shop (Mẫu bán hàng) -->
+  <!-- Modal Gói Chủ Shop -->
   <div class="modal-backdrop hidden" id="upgradeModal" role="dialog" aria-modal="true" aria-labelledby="upgradeModalTitle">
     <div class="modal">
       <div class="modal-header">
-        <h3 id="upgradeModalTitle">⭐ Gói Chủ Shop Pro — 79.000đ / tháng</h3>
+        <h3 id="upgradeModalTitle">⭐ Nâng cấp Gói Chủ Shop</h3>
         <button class="icon-close" type="button" data-close-modal="upgradeModal" aria-label="Đóng">✕</button>
       </div>
       <div class="modal-body">
-        <div class="pricing-box">
-          <ul class="pricing-list">
-            <li>✅ Tách không giới hạn đơn hàng mỗi ngày bằng AI siêu chuẩn</li>
-            <li>✅ Tự động ghép nhiều tin nhắn rời rạc của cùng 1 khách</li>
-            <li>✅ Xuất file Excel đúng mẫu GHTK / GHN / Viettel Post</li>
-            <li>✅ Hỗ trợ trực tiếp qua Zalo 5 phút</li>
-          </ul>
+        <div id="licenseStatusBox" class="license-status hidden"></div>
+
+        <div class="plan-grid">
+          <div class="plan-card">
+            <div class="plan-name">Gói 1 tháng</div>
+            <div class="plan-price">30.000đ<span> / tháng</span></div>
+            <p class="plan-desc">Tách đơn không giới hạn trong 30 ngày, xuất Excel &amp; Google Sheets.</p>
+          </div>
+          <div class="plan-card plan-card-featured">
+            <span class="plan-badge">Tiết kiệm 10k</span>
+            <div class="plan-name">Gói 2 tháng</div>
+            <div class="plan-price">50.000đ<span> / 2 tháng</span></div>
+            <p class="plan-desc">Chỉ 25.000đ/tháng, tách đơn không giới hạn trong 60 ngày.</p>
+          </div>
         </div>
+
         <div class="qr-placeholder">
           <div class="qr-box">MÃ VIETQR<br/>CỦA SHOP</div>
           <div>
             <strong>Chuyển khoản kích hoạt ngay:</strong>
             <p class="muted" style="margin-top: 6px;">
-              Nội dung chuyển khoản: <code>GOMDON + SĐT của bạn</code>. Sau đó nhắn Zalo để nhận mã kích hoạt dùng ngay!
+              Chuyển <strong>30.000đ</strong> (1 tháng) hoặc <strong>50.000đ</strong> (2 tháng) với nội dung: <code>GOMDON + SĐT của bạn</code>. Sau đó nhắn Zalo để nhận mã kích hoạt!
             </p>
           </div>
         </div>
+
+        <div class="license-box">
+          <label class="license-label" for="licenseCodeInput">Đã có mã kích hoạt? Nhập tại đây:</label>
+          <div class="license-row">
+            <input
+              id="licenseCodeInput"
+              class="license-input"
+              type="text"
+              placeholder="Ví dụ: GD1M-XXXX-XX"
+              autocomplete="off"
+            />
+            <button id="btnActivateLicense" class="btn btn-primary" type="button">Kích hoạt</button>
+          </div>
+        </div>
+
+        <div id="ownerToolsBox" class="owner-tools-box hidden">
+          <div class="owner-tools-title">👑 Công cụ Chủ sở hữu (tạo mã gửi khách)</div>
+          <div class="owner-tools-actions">
+            <button id="btnGen1M" class="btn btn-soft btn-sm" type="button">+ Tạo mã 1 tháng (30k)</button>
+            <button id="btnGen2M" class="btn btn-soft btn-sm" type="button">+ Tạo mã 2 tháng (50k)</button>
+          </div>
+          <div id="generatedCodeOutput" class="generated-code hidden"></div>
+        </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary" data-close-modal="upgradeModal" type="button">Đóng lại</button>
+        <button class="btn btn-soft" data-close-modal="upgradeModal" type="button">Đóng lại</button>
       </div>
     </div>
   </div>
